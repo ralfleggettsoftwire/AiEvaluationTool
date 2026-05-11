@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; [[ \"$f\" == *.py ]] || exit 0; uv run ruff format \"$f\" && uv run ruff check --fix \"$f\" && uv run pyright \"$f\"; }",
+            "timeout": 60,
+            "statusMessage": "Linting and type-checking..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Tool caches
+.ruff_cache/
+
+# Experiment results (synced via S3)
+results/
+
+# Secrets / environment
+.env
+
+# Claude Code local settings (personal overrides)
+.claude/settings.local.json
