@@ -36,11 +36,12 @@ Results are uploaded to S3 immediately after each run so they survive instance s
 git clone <this-repo>
 cd AiEvaluationTools
 uv sync
+cp .env.example .env   # then fill in your values
 ```
 
 ## Environment variables
 
-Set these before running any CLI command. A `.env` file is a convenient way to manage them locally (never commit it).
+Copy `.env.example` to `.env` and fill in your values. Source it before running CLI commands (`source .env` or use a tool like [`direnv`](https://direnv.net/)). Never commit `.env` — it is gitignored.
 
 | Variable | Required for | Description |
 |----------|-------------|-------------|
