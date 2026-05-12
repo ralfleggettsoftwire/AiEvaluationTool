@@ -1,4 +1,3 @@
-import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -51,7 +50,7 @@ class Exp4Concurrency(BaseExperiment):
         started_at = datetime.now(tz=UTC)
 
         for level in self._exp_config.concurrency_levels:
-            runner._sem = asyncio.Semaphore(level)
+            runner.set_max_concurrency(level)
             level_results = await runner.run(level_requests)
             all_results.extend(level_results)
 

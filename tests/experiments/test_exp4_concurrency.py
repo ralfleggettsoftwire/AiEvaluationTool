@@ -1,7 +1,6 @@
-import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -83,6 +82,7 @@ async def test_run_calls_runner_once_per_concurrency_level(
     exp = Exp4Concurrency(config, output_dir)
 
     mock_runner = AsyncMock()
+    mock_runner.set_max_concurrency = MagicMock()
     mock_runner.run.return_value = [_make_result(), _make_result()]
 
     summary = await exp.run(mock_runner)
@@ -92,7 +92,7 @@ async def test_run_calls_runner_once_per_concurrency_level(
 
 
 @pytest.mark.asyncio
-async def test_run_sets_semaphore_per_level(prompt_file: Path, tmp_path: Path) -> None:
+async def test_run_sets_concurrency_per_level(prompt_file: Path, tmp_path: Path) -> None:
     config = Exp4Config(
         model_name="llama3",
         hardware="g4dn.xlarge",
@@ -103,19 +103,14 @@ async def test_run_sets_semaphore_per_level(prompt_file: Path, tmp_path: Path) -
     output_dir = tmp_path / "out"
     exp = Exp4Concurrency(config, output_dir)
 
-    sem_values: list[int] = []
-
-    async def _run(requests: list[RequestConfig]) -> list[Result]:
-        sem_values.append(mock_runner._sem._value)
-        return [_make_result()]
-
     mock_runner = AsyncMock()
-    mock_runner.run.side_effect = _run
-    mock_runner._sem = asyncio.Semaphore(99)
+    mock_runner.set_max_concurrency = MagicMock()
+    mock_runner.run.return_value = [_make_result()]
 
     await exp.run(mock_runner)
 
-    assert sem_values == [1, 5]
+    calls = [c.args[0] for c in mock_runner.set_max_concurrency.call_args_list]
+    assert calls == [1, 5]
 
 
 @pytest.mark.asyncio
@@ -139,9 +134,8 @@ async def test_run_writes_config_before_first_runner_call(
         return [_make_result()]
 
     mock_runner = AsyncMock()
+    mock_runner.set_max_concurrency = MagicMock()
     mock_runner.run.side_effect = _run
-
-    mock_runner._sem = asyncio.Semaphore(1)
 
     await exp.run(mock_runner)
 

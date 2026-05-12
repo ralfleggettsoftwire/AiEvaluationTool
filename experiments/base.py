@@ -60,10 +60,11 @@ class BaseExperiment(ABC):
                 fh.write(r.model_dump_json() + "\n")
 
         error_count = sum(1 for r in results if r.error is not None)
+        successful = [r for r in results if r.error is None]
 
-        ttft_values = [r.ttft_s for r in results]
-        latency_values = [r.total_latency_s for r in results]
-        tps_values = [r.tokens_per_sec for r in results]
+        ttft_values = [r.ttft_s for r in successful]
+        latency_values = [r.total_latency_s for r in successful]
+        tps_values = [r.tokens_per_sec for r in successful]
 
         config_dict = self._config.model_dump(mode="json")
         summary = ExperimentSummary(

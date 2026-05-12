@@ -45,10 +45,12 @@ class Exp5Soak(BaseExperiment):
         started_at = datetime.now(tz=UTC)
         deadline = time.monotonic() + self._exp_config.duration_s
 
-        while time.monotonic() < deadline:
+        while True:
             batch = self.build_requests()
             batch_results = await runner.run(batch)
             all_results.extend(batch_results)
+            if time.monotonic() >= deadline:
+                break
 
         completed_at = datetime.now(tz=UTC)
         return self._finalise(all_results, started_at, completed_at)

@@ -52,6 +52,9 @@ class Runner:
         assert all(r is not None for r in results), "BUG: unfilled result slot"
         return [r for r in results if r is not None]
 
+    def set_max_concurrency(self, max_concurrency: int) -> None:
+        self._sem = asyncio.Semaphore(max_concurrency)
+
     async def _poll_loop(self) -> None:
         assert self._metrics_poller is not None
         while True:
