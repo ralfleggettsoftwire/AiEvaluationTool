@@ -68,3 +68,10 @@ def test_list_keys_empty_prefix_returns_all(tmp_path, manager) -> None:  # type:
 
     keys = manager.list_keys()
     assert sorted(keys) == ["a/one.txt", "b/one.txt"]
+
+
+def test_upload_directory_raises_on_empty_directory(tmp_path, manager) -> None:  # type: ignore[no-untyped-def]
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    with pytest.raises(ValueError, match="No files found"):
+        manager.upload_directory(empty_dir, "results/run")

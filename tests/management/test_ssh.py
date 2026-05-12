@@ -39,7 +39,7 @@ def test_upload_config_calls_put_with_correct_args(
 
 
 @patch("management.ssh.Connection")
-def test_run_experiment_calls_run_with_config_path(
+def test_run_experiment_calls_run_with_config_path_and_disown(
     mock_conn_cls: MagicMock, manager: SSHManager
 ) -> None:
     conn = _make_conn()
@@ -50,6 +50,18 @@ def test_run_experiment_calls_run_with_config_path(
     conn.run.assert_called_once()
     cmd: str = conn.run.call_args[0][0]
     assert "/home/ec2-user/config/exp1.yaml" in cmd
+    assert conn.run.call_args.kwargs.get("disown") is True
+
+
+@patch("management.ssh.Connection")
+def test_run_experiment_quotes_config_path(mock_conn_cls: MagicMock, manager: SSHManager) -> None:
+    conn = _make_conn()
+    mock_conn_cls.return_value = conn
+
+    manager.run_experiment("/path with spaces/config.yaml")
+
+    cmd: str = conn.run.call_args[0][0]
+    assert "'/path with spaces/config.yaml'" in cmd
 
 
 @patch("management.ssh.Connection")
@@ -58,7 +70,7 @@ def test_get_experiment_status_returns_true_when_running(
 ) -> None:
     conn = _make_conn()
     mock_conn_cls.return_value = conn
-    conn.run.return_value = MagicMock(stdout="0\n")
+    conn.run.return_value = MagicMock(exited=0)
 
     assert manager.get_experiment_status() is True
 
@@ -69,6 +81,6 @@ def test_get_experiment_status_returns_false_when_not_running(
 ) -> None:
     conn = _make_conn()
     mock_conn_cls.return_value = conn
-    conn.run.return_value = MagicMock(stdout="1\n")
+    conn.run.return_value = MagicMock(exited=1)
 
     assert manager.get_experiment_status() is False

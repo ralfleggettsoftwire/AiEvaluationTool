@@ -14,9 +14,10 @@ class S3Manager:
         self._client: Any = boto3.client("s3", region_name=region)
 
     def upload_directory(self, local_path: Path, s3_prefix: str) -> None:
-        for file_path in local_path.rglob("*"):
-            if not file_path.is_file():
-                continue
+        files = [p for p in local_path.rglob("*") if p.is_file()]
+        if not files:
+            raise ValueError(f"No files found under {local_path}")
+        for file_path in files:
             relative = file_path.relative_to(local_path)
             key = f"{s3_prefix}/{relative}".replace("\\", "/")
             self._client.upload_file(str(file_path), self._bucket, key)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from typing import TYPE_CHECKING
 
 from fabric import Connection  # type: ignore[import-untyped]
@@ -26,14 +27,12 @@ class SSHManager:
             conn.put(str(local_path), remote=remote_path)
 
     def run_experiment(self, config_path: str) -> None:
-        cmd = f"nohup python harness/runner.py --config {config_path} &>/dev/null & disown"
+        quoted = shlex.quote(config_path)
+        cmd = f"nohup python harness/runner.py --config {quoted} &>/dev/null & disown"
         with self._connect() as conn:
             conn.run(cmd, disown=True)
 
     def get_experiment_status(self) -> bool:
         with self._connect() as conn:
-            result = conn.run(
-                "pgrep -f 'harness/runner.py' > /dev/null 2>&1; echo $?",
-                hide=True,
-            )
-            return result.stdout.strip() == "0"
+            result = conn.run("pgrep -f harness/runner.py", hide=True, warn=True)
+            return result.exited == 0

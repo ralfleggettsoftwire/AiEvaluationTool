@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 from datetime import UTC, datetime
+from typing import Protocol
 
 from harness.metrics import MetricsPoller
 from models import RequestConfig, Result
@@ -48,7 +49,7 @@ class Runner:
         else:
             await asyncio.gather(*tasks)
 
-        # Every slot is guaranteed to be filled by _execute; the cast is safe.
+        assert all(r is not None for r in results), "BUG: unfilled result slot"
         return [r for r in results if r is not None]
 
     async def _poll_loop(self) -> None:
@@ -58,7 +59,5 @@ class Runner:
             await asyncio.sleep(_METRICS_INTERVAL_S)
 
 
-class ClientProtocol:
-    """Structural protocol for any object with a complete() coroutine."""
-
+class ClientProtocol(Protocol):
     async def complete(self, request: RequestConfig) -> Result: ...

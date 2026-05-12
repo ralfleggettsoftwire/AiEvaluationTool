@@ -2,9 +2,9 @@ import httpx
 
 
 class MetricsPoller:
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, timeout: float = 5.0) -> None:
         self._url = base_url.rstrip("/") + "/metrics"
-        self._http = httpx.AsyncClient()
+        self._http = httpx.AsyncClient(timeout=httpx.Timeout(timeout))
 
     async def poll(self) -> dict[str, float]:
         try:
