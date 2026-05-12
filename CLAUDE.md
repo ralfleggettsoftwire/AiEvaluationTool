@@ -19,6 +19,7 @@ uv run pytest                  # run all tests
 uv run pytest tests/test_foo.py::test_bar  # run a single test
 uv run ruff check .            # lint
 uv run ruff format .           # format
+uv run pyright .               # type-check
 ```
 
 ## Planned Architecture
@@ -108,3 +109,63 @@ python cli.py stop                                # stop the harness instance
 ```
 
 Sensitive values (endpoint URL, AWS credentials, S3 bucket name, instance ID) come from environment variables, never from config files.
+
+## Testing Plan
+
+Unit tests only — no integration or end-to-end tests. All network I/O is mocked at the library boundary.
+
+### Test dependencies
+
+| Library | Role |
+|---------|------|
+| `pytest` | Test runner |
+| `pytest-asyncio` | `async def` test support |
+| `respx` | Mock `httpx` at the transport layer (SSE streaming included) |
+| `moto` | In-process AWS mock for `boto3` (EC2, S3, Pricing API) |
+| `unittest.mock` | Patch `fabric` connections and anything not covered above |
+
+Add with: `uv add --dev pytest pytest-asyncio respx moto`
+
+### Test file layout
+
+Mirror the source tree under `tests/`:
+
+```
+tests/
+  conftest.py              # shared fixtures: mock httpx transport, moto AWS context, sample configs
+  harness/
+    test_client.py         # SSE parsing, TTFT measurement, error handling
+    test_metrics.py        # Prometheus response parsing
+    test_runner.py         # concurrency control, semaphore behaviour, result aggregation
+  experiments/
+    test_base.py           # config.yaml written before first request; result serialisation
+    test_exp1_baseline.py
+    test_exp2_cold_start.py
+    test_exp3_context.py
+    test_exp4_concurrency.py
+    test_exp5_soak.py
+    test_exp6_workload.py
+  management/
+    test_ec2_manager.py    # start/stop/waiter logic
+    test_s3.py             # upload, download, path construction
+    test_ssh.py            # config upload, remote trigger
+  test_cli.py              # click CliRunner for all CLI commands
+```
+
+### Mocking strategy per module
+
+**`harness/client.py`** — use `respx` to mount a fake SSE transport on the `httpx.AsyncClient`. Return a chunked response that emits `data:` lines on a controlled schedule so TTFT can be asserted precisely without real timing. Test malformed SSE, connection errors, and timeout paths.
+
+**`harness/metrics.py`** — use `respx` to return a static Prometheus text payload. Assert that `gpu_cache_usage_perc` and `num_requests_running` are parsed correctly; test missing/malformed metric lines.
+
+**`harness/runner.py`** — replace `client.complete()` with an `AsyncMock`. Assert that the semaphore limits in-flight requests to the configured concurrency ceiling; assert that all results are collected even when some requests raise.
+
+**`experiments/`** — inject a mock runner (returns pre-canned `Result` objects). Assert that `config.yaml` is written before any request is dispatched. Assert that `results.jsonl` accumulates one line per result and `summary.json` contains correct percentile values.
+
+**`management/ec2_manager.py`** — wrap each test in `@moto.mock_ec2`. Assert start/stop calls reach the correct instance ID; assert that waiters are invoked; assert that the method raises on a non-existent instance ID.
+
+**`management/s3.py`** — wrap each test in `@moto.mock_s3`. Pre-create the bucket in the fixture. Assert that upload writes the exact bytes; assert that download recreates the local path structure; assert that listing returns the expected keys.
+
+**`management/ssh.py`** — patch `fabric.Connection` with `unittest.mock.MagicMock`. Assert that `put()` is called with the correct local and remote paths; assert that `run()` receives the expected command string.
+
+**`cli.py`** — use `click.testing.CliRunner`. Patch the underlying `ec2_manager`, `s3`, and `ssh` callables so no real AWS or SSH calls are made. Assert exit codes and stdout fragments for each subcommand.
