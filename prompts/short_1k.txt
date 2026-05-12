@@ -1,0 +1,99 @@
+You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
+
+```python
+def process_data(items, threshold=0.5, max_retries=3):
+    results = []
+    for item in items:
+        if item.value > threshold:
+            for attempt in range(max_retries):
+                try:
+                    result = transform(item)
+                    results.append(result)
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+    return results
+```
+
+Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
+
+You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
+
+```python
+def process_data(items, threshold=0.5, max_retries=3):
+    results = []
+    for item in items:
+        if item.value > threshold:
+            for attempt in range(max_retries):
+                try:
+                    result = transform(item)
+                    results.append(result)
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+    return results
+```
+
+Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
+
+You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
+
+```python
+def process_data(items, threshold=0.5, max_retries=3):
+    results = []
+    for item in items:
+        if item.value > threshold:
+            for attempt in range(max_retries):
+                try:
+                    result = transform(item)
+                    results.append(result)
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+    return results
+```
+
+Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
+
+You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
+
+```python
+def process_data(items, threshold=0.5, max_retries=3):
+    results = []
+    for item in items:
+        if item.value > threshold:
+            for attempt in range(max_retries):
+                try:
+                    result = transform(item)
+                    results.append(result)
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+    return results
+```
+
+Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
+
+You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
+
+```python
+def process_data(items, threshold=0.5, max_retries=3):
+    results = []
+    for item in items:
+        if item.value > threshold:
+            for attempt in range(max_retries):
+                try:
+                    result = transform(item)
+                    results.append(result)
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+    return results
+```
+
+Additionally, please explain your reasoning for each suggested change and provide a

@@ -1,0 +1,13 @@
+model_name: llama3-8b
+hardware: g4dn.xlarge
+prompt_files:
+  short: prompts/short_1k.txt
+  medium: prompts/medium_4k.txt
+  long: prompts/long_16k.txt
+weights:
+  short: 0.6
+  medium: 0.3
+  long: 0.1
+max_tokens: 256
+n_requests: 100
+concurrency: 10

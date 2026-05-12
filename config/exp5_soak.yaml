@@ -1,0 +1,7 @@
+model_name: llama3-8b
+hardware: g4dn.xlarge
+prompt_file: prompts/short_1k.txt
+max_tokens: 128
+concurrency: 10
+duration_s: 300
+requests_per_batch: 50
