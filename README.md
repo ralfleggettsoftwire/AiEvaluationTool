@@ -113,6 +113,8 @@ python cli.py stop
 
 Each experiment series has its own config schema. The provided configs in `config/` use `llama3-8b` on `g4dn.xlarge` as a starting point — change `model_name` and `hardware` to match what you're testing.
 
+`max_tokens` is optional in all configs. When omitted the model generates until it naturally stops. Set it only when you need a consistent output-length ceiling — for example in Experiment 3 to hold output length constant across prompt sizes, or in Experiment 2 where only TTFT matters. Do not set it for load or soak experiments: a low cap prevents the KV cache from filling and gives an unrepresentative throughput reading.
+
 ### Experiment 1 — single-user baseline
 
 Sends the same prompt repeatedly from a single user. Use this to get a clean baseline TTFT and tokens/sec before introducing concurrency.
@@ -122,7 +124,6 @@ Sends the same prompt repeatedly from a single user. Use this to get a clean bas
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt   # path to a prompt file on the harness instance
-max_tokens: 256                      # max tokens to generate per request
 n_requests: 20                       # number of sequential requests
 ```
 
@@ -135,7 +136,7 @@ Measures warm-up after a cold GPU start. Run this immediately after the GPU inst
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt
-max_tokens: 64
+max_tokens: 1          # only TTFT matters here; stop after the first token
 n_warmup_requests: 5
 ```
 
@@ -148,46 +149,49 @@ Tests how TTFT and throughput degrade as prompt length grows. Supply one file pe
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_files:
-  - prompts/short_1k.txt    # ~1k tokens
-  - prompts/medium_4k.txt   # ~4k tokens
-  - prompts/long_16k.txt    # ~16k tokens
-  - prompts/xlarge_32k.txt  # ~32k tokens
-max_tokens: 128
-repeats_per_length: 5       # requests per file
+  - prompts/short_1k.txt     # ~1k tokens
+  - prompts/medium_4k.txt    # ~4k tokens
+  - prompts/long_32k.txt     # ~32k tokens
+  - prompts/xlarge_128k.txt  # ~128k tokens
+max_tokens: 1024             # consistent cap across all lengths to isolate input-context effect
+repeats_per_length: 5        # requests per file
 ```
 
 ### Experiment 4 — concurrency ramp
 
-Ramps concurrent users from 1 to 100, running a fixed number of requests at each level. Shows where throughput saturates and error rates increase.
+Shows where throughput saturates and error rates increase by stepping through a series of concurrency levels in order. At each level the runner's semaphore is set to that value, then `level × requests_per_user` requests are submitted to the asyncio event loop all at once — enough tasks to keep all concurrency slots busy. The semaphore caps how many can be executing simultaneously. The experiment waits for all requests at a level to complete before advancing to the next level, giving each step a clean measurement window. Total requests sent = `sum(level × requests_per_user for level in concurrency_levels)`.
 
 ```yaml
 # config/exp4_concurrency.yaml
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt
-max_tokens: 128
 concurrency_levels: [1, 5, 10, 25, 50, 100]
-requests_per_level: 10
+requests_per_user: 10
 ```
+
+- **`concurrency_levels`** — ordered list of concurrency values to test. Each entry produces one measurement step.
+- **`requests_per_user`** — how many requests each simulated user sends at each step. The total tasks dispatched per step is `level × requests_per_user`, ensuring the concurrency slots are always the binding constraint rather than the task count.
 
 ### Experiment 5 — soak test
 
-Runs at a fixed concurrency for a sustained period. Useful for detecting memory leaks, KV-cache exhaustion, or throughput degradation over time.
+Useful for detecting memory leaks, KV-cache exhaustion, or throughput degradation over time. The experiment spawns `concurrency` independent user coroutines, each of which issues a request, waits for the response, then immediately issues the next — modelling users who act independently of one another. All coroutines run until the wall-clock deadline (`duration_s` seconds from start) is reached; in-flight requests at the deadline complete normally before the experiment stops.
 
 ```yaml
 # config/exp5_soak.yaml
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt
-max_tokens: 128
 concurrency: 10
-duration_s: 300           # run for 5 minutes
-requests_per_batch: 50    # requests dispatched per loop iteration
+duration_s: 300
 ```
+
+- **`concurrency`** — number of independent simulated users, each continuously sending requests for the duration of the test.
+- **`duration_s`** — wall-clock seconds to sustain load. Each user checks the deadline before issuing its next request, so the experiment stops cleanly without aborting in-flight requests.
 
 ### Experiment 6 — realistic workload mix
 
-Samples prompts from multiple files according to weighted probabilities. Approximates the mix of short autocomplete requests, medium chat turns, and long context operations seen in real developer usage.
+Approximates the mix of short autocomplete requests, medium chat turns, and long context operations seen in real developer usage. Before any requests are sent, `n_requests` prompts are sampled from `prompt_files` using `random.choices` weighted by `weights` — producing a randomised but statistically predictable distribution. All requests are then submitted to the asyncio event loop at once, with the `concurrency` semaphore controlling how many are in-flight simultaneously.
 
 ```yaml
 # config/exp6_workload.yaml
@@ -196,28 +200,32 @@ hardware: g4dn.xlarge
 prompt_files:
   short: prompts/short_1k.txt
   medium: prompts/medium_4k.txt
-  long: prompts/long_16k.txt
+  long: prompts/long_32k.txt
+  xlarge: prompts/xlarge_128k.txt
 weights:
-  short: 0.6    # 60% of requests
-  medium: 0.3   # 30% of requests
-  long: 0.1     # 10% of requests
-max_tokens: 256
+  short: 0.50
+  medium: 0.35
+  long: 0.12
+  xlarge: 0.03
 n_requests: 100
 concurrency: 10
 ```
 
+- **`n_requests`** — total number of requests to send across the entire run. Prompt type for each request is chosen independently by weighted random sampling, so the actual mix converges to the configured proportions as `n_requests` grows.
+- **`concurrency`** — maximum number of requests in-flight at the same time.
+
 ## Prompt corpus
 
-The `prompts/` directory contains four files at different token lengths, all using a realistic code-review prompt. Approximate sizes:
+The `prompts/` directory contains four files at different token lengths, each using a distinct task type representative of real developer usage:
 
-| File | Tokens |
-|------|--------|
-| `short_1k.txt` | ~1 000 |
-| `medium_4k.txt` | ~4 000 |
-| `long_16k.txt` | ~16 000 |
-| `xlarge_32k.txt` | ~32 000 |
+| File | Approx tokens | Task |
+|------|--------------|------|
+| `short_1k.txt` | ~1 000 | Implement a short function from a detailed spec (sliding-window rate limiter) |
+| `medium_4k.txt` | ~4 000 | Fix a bug and extend an existing class (async connection pool) |
+| `long_32k.txt` | ~32 000 | Diagnose a memory leak given real CPython asyncio source as context |
+| `xlarge_128k.txt` | ~128 000 | Implement a feature (async reverse proxy) given 7 stdlib source files as reference |
 
-Replace or extend these with prompts representative of your team's actual usage patterns for more meaningful results.
+Different task types produce different output lengths, which gives more realistic throughput signals across the token tiers. Replace or extend these files with prompts representative of your team's actual usage patterns for more meaningful results.
 
 ## Results format
 
