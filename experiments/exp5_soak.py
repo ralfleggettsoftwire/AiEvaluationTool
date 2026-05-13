@@ -1,3 +1,4 @@
+import asyncio
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,10 +15,9 @@ class Exp5Config(BaseModel):
     model_name: str
     hardware: str
     prompt_file: str
-    max_tokens: int = 128
+    max_tokens: int | None = None
     concurrency: int = 10
     duration_s: int = 300
-    requests_per_batch: int = 50
 
 
 class Exp5Soak(BaseExperiment):
@@ -27,10 +27,7 @@ class Exp5Soak(BaseExperiment):
 
     def build_requests(self) -> list[RequestConfig]:
         prompt = Path(self._exp_config.prompt_file).read_text(encoding="utf-8")
-        return [
-            RequestConfig(prompt=prompt, max_tokens=self._exp_config.max_tokens)
-            for _ in range(self._exp_config.requests_per_batch)
-        ]
+        return [RequestConfig(prompt=prompt, max_tokens=self._exp_config.max_tokens)]
 
     async def run(self, runner: Runner) -> ExperimentSummary:
         self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -41,16 +38,21 @@ class Exp5Soak(BaseExperiment):
             encoding="utf-8",
         )
 
+        prompt = Path(self._exp_config.prompt_file).read_text(encoding="utf-8")
+        req = RequestConfig(prompt=prompt, max_tokens=self._exp_config.max_tokens)
+
         all_results: list[Result] = []
         started_at = datetime.now(tz=UTC)
         deadline = time.monotonic() + self._exp_config.duration_s
 
-        while True:
-            batch = self.build_requests()
-            batch_results = await runner.run(batch)
-            all_results.extend(batch_results)
-            if time.monotonic() >= deadline:
-                break
+        runner.set_max_concurrency(self._exp_config.concurrency)
+
+        async def user_loop() -> None:
+            while time.monotonic() < deadline:
+                results = await runner.run([req])
+                all_results.extend(results)
+
+        await asyncio.gather(*[user_loop() for _ in range(self._exp_config.concurrency)])
 
         completed_at = datetime.now(tz=UTC)
         return self._finalise(all_results, started_at, completed_at)

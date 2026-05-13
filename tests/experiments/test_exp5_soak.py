@@ -1,7 +1,7 @@
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -28,20 +28,7 @@ def prompt_file(tmp_path: Path) -> Path:
     return p
 
 
-def test_build_requests_returns_requests_per_batch(prompt_file: Path) -> None:
-    config = Exp5Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
-        prompt_file=str(prompt_file),
-        requests_per_batch=20,
-    )
-    exp = Exp5Soak(config, Path("/tmp/unused"))
-    requests = exp.build_requests()
-
-    assert len(requests) == 20
-
-
-def test_build_requests_default_batch_size(prompt_file: Path) -> None:
+def test_build_requests_returns_single_request_config(prompt_file: Path) -> None:
     config = Exp5Config(
         model_name="llama3",
         hardware="g4dn.xlarge",
@@ -50,7 +37,8 @@ def test_build_requests_default_batch_size(prompt_file: Path) -> None:
     exp = Exp5Soak(config, Path("/tmp/unused"))
     requests = exp.build_requests()
 
-    assert len(requests) == 50
+    assert len(requests) == 1
+    assert isinstance(requests[0], RequestConfig)
 
 
 def test_build_requests_uses_prompt_content(prompt_file: Path) -> None:
@@ -58,71 +46,92 @@ def test_build_requests_uses_prompt_content(prompt_file: Path) -> None:
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
-        requests_per_batch=3,
         max_tokens=64,
     )
     exp = Exp5Soak(config, Path("/tmp/unused"))
     requests = exp.build_requests()
 
-    for req in requests:
-        assert req.prompt == "Soak test prompt"
-        assert req.max_tokens == 64
-
-
-def test_build_requests_returns_request_config_objects(prompt_file: Path) -> None:
-    config = Exp5Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
-        prompt_file=str(prompt_file),
-        requests_per_batch=2,
-    )
-    exp = Exp5Soak(config, Path("/tmp/unused"))
-    requests = exp.build_requests()
-
-    assert all(isinstance(r, RequestConfig) for r in requests)
+    assert requests[0].prompt == "Soak test prompt"
+    assert requests[0].max_tokens == 64
 
 
 @pytest.mark.asyncio
-async def test_run_loops_until_duration_elapsed(prompt_file: Path, tmp_path: Path) -> None:
-    config = Exp5Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
-        prompt_file=str(prompt_file),
-        duration_s=1,
-        requests_per_batch=2,
-    )
-    output_dir = tmp_path / "out"
-    exp = Exp5Soak(config, output_dir)
-
-    call_count = 0
-
-    async def _run(requests: list[RequestConfig]) -> list[Result]:
-        nonlocal call_count
-        call_count += 1
-        return [_make_result(), _make_result()]
-
-    mock_runner = AsyncMock()
-    mock_runner.run.side_effect = _run
-
-    start = time.monotonic()
-    summary = await exp.run(mock_runner)
-    elapsed = time.monotonic() - start
-
-    assert call_count >= 1
-    assert summary.total_requests == call_count * 2
-    assert elapsed >= 1.0
-
-
-@pytest.mark.asyncio
-async def test_run_writes_config_before_first_runner_call(
+async def test_run_each_user_loops_until_duration_elapsed(
     prompt_file: Path, tmp_path: Path
 ) -> None:
     config = Exp5Config(
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
-        duration_s=0,
-        requests_per_batch=1,
+        concurrency=2,
+        duration_s=1,
+    )
+    output_dir = tmp_path / "out"
+    exp = Exp5Soak(config, output_dir)
+
+    mock_runner = AsyncMock()
+    mock_runner.set_max_concurrency = MagicMock()
+    mock_runner.run.return_value = [_make_result()]
+
+    start = time.monotonic()
+    summary = await exp.run(mock_runner)
+    elapsed = time.monotonic() - start
+
+    # both users ran at least once each; total >= concurrency
+    assert summary.total_requests >= 2
+    assert elapsed >= 1.0
+
+
+@pytest.mark.asyncio
+async def test_run_sets_concurrency_on_runner(prompt_file: Path, tmp_path: Path) -> None:
+    config = Exp5Config(
+        model_name="llama3",
+        hardware="g4dn.xlarge",
+        prompt_file=str(prompt_file),
+        concurrency=7,
+        duration_s=1,
+    )
+    output_dir = tmp_path / "out"
+    exp = Exp5Soak(config, output_dir)
+
+    mock_runner = AsyncMock()
+    mock_runner.set_max_concurrency = MagicMock()
+    mock_runner.run.return_value = [_make_result()]
+
+    await exp.run(mock_runner)
+
+    mock_runner.set_max_concurrency.assert_called_once_with(7)
+
+
+@pytest.mark.asyncio
+async def test_run_accumulates_results_from_all_users(prompt_file: Path, tmp_path: Path) -> None:
+    config = Exp5Config(
+        model_name="llama3",
+        hardware="g4dn.xlarge",
+        prompt_file=str(prompt_file),
+        concurrency=3,
+        duration_s=1,
+    )
+    output_dir = tmp_path / "out"
+    exp = Exp5Soak(config, output_dir)
+
+    mock_runner = AsyncMock()
+    mock_runner.set_max_concurrency = MagicMock()
+    mock_runner.run.return_value = [_make_result()]
+
+    summary = await exp.run(mock_runner)
+
+    assert summary.total_requests == mock_runner.run.call_count
+
+
+@pytest.mark.asyncio
+async def test_run_writes_config_before_first_request(prompt_file: Path, tmp_path: Path) -> None:
+    config = Exp5Config(
+        model_name="llama3",
+        hardware="g4dn.xlarge",
+        prompt_file=str(prompt_file),
+        concurrency=1,
+        duration_s=1,
     )
     output_dir = tmp_path / "out"
     exp = Exp5Soak(config, output_dir)
@@ -134,31 +143,9 @@ async def test_run_writes_config_before_first_runner_call(
         return [_make_result()]
 
     mock_runner = AsyncMock()
+    mock_runner.set_max_concurrency = MagicMock()
     mock_runner.run.side_effect = _run
 
     await exp.run(mock_runner)
 
-    if config_written_before:
-        assert config_written_before[0] is True
-
-    assert (output_dir / "config.yaml").exists()
-
-
-@pytest.mark.asyncio
-async def test_run_accumulates_results_across_batches(prompt_file: Path, tmp_path: Path) -> None:
-    config = Exp5Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
-        prompt_file=str(prompt_file),
-        duration_s=1,
-        requests_per_batch=3,
-    )
-    output_dir = tmp_path / "out"
-    exp = Exp5Soak(config, output_dir)
-
-    mock_runner = AsyncMock()
-    mock_runner.run.return_value = [_make_result(), _make_result(), _make_result()]
-
-    summary = await exp.run(mock_runner)
-
-    assert summary.total_requests == mock_runner.run.call_count * 3
+    assert config_written_before[0] is True
