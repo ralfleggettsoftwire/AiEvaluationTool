@@ -1,5 +1,6 @@
 import json
 import time
+import uuid
 from datetime import UTC, datetime
 
 import httpx
@@ -35,7 +36,7 @@ class LLMClient:
         model = await self._get_model()
         body: dict[str, object] = {
             "model": model,
-            "messages": [{"role": "user", "content": request.prompt}],
+            "messages": [{"role": "user", "content": f"{uuid.uuid4()}\n{request.prompt}"}],
             "temperature": request.temperature,
             "stream": True,
             "stream_options": {"include_usage": True},
