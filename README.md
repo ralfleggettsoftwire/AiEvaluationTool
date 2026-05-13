@@ -39,6 +39,10 @@ uv sync
 cp .env.example .env   # then fill in your values
 ```
 
+## Local testing
+
+To verify the harness works before incurring AWS costs, you can run experiments locally on a MacBook using [Ollama](https://ollama.com). See **[local/README.md](local/README.md)** for setup instructions.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` and fill in your values. Source it before running CLI commands (`source .env` or use a tool like [`direnv`](https://direnv.net/)). Never commit `.env` — it is gitignored.

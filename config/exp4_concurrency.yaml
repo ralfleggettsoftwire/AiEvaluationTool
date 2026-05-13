@@ -1,5 +1,6 @@
-model_name: llama3-8b
-hardware: g4dn.xlarge
+experiment_type: exp4_concurrency
+model_name: qwen2.5-coder:7b
+hardware: local-macbook
 prompt_file: prompts/short_1k.txt
 concurrency_levels:
   - 1

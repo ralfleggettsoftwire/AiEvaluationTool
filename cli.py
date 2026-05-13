@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
 
 import click
 
+from harness.local_runner import run_from_config
 from management.ec2_manager import EC2Manager
 from management.s3 import S3Manager
 from management.ssh import SSHManager
@@ -87,6 +89,19 @@ def run_experiment(config_path: str) -> None:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     click.echo("Experiment started.")
+
+
+@cli.command("run-local")
+@click.option(
+    "--config",
+    "config_path",
+    required=True,
+    type=click.Path(exists=True),
+    help="Path to YAML config file",
+)
+def run_local(config_path: str) -> None:
+    """Run an experiment locally without EC2/SSH infrastructure."""
+    asyncio.run(run_from_config(Path(config_path)))
 
 
 @cli.command()
