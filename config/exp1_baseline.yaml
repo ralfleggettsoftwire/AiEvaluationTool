@@ -1,5 +1,4 @@
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt
-max_tokens: 256
 n_requests: 20

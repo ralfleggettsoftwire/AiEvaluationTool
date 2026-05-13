@@ -3,7 +3,7 @@ hardware: g4dn.xlarge
 prompt_files:
   - prompts/short_1k.txt
   - prompts/medium_4k.txt
-  - prompts/long_16k.txt
-  - prompts/xlarge_32k.txt
-max_tokens: 128
+  - prompts/long_32k.txt
+  - prompts/xlarge_128k.txt
+max_tokens: 1024
 repeats_per_length: 5
