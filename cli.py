@@ -6,11 +6,14 @@ import sys
 from pathlib import Path
 
 import click
+from dotenv import load_dotenv
 
 from harness.local_runner import run_from_config
 from management.ec2_manager import EC2Manager
 from management.s3 import S3Manager
 from management.ssh import SSHManager
+
+load_dotenv()
 
 _REMOTE_CONFIG_PATH = "~/harness_config.yaml"
 
