@@ -1,396 +1,480 @@
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
+You are an AI coding assistant embedded in a developer's IDE.
+
+## Task: Extend a connection pool with priority queuing and fix a resource leak
+
+You are working in a backend service that manages a pool of persistent TCP
+connections to a downstream gRPC inference server. A colleague wrote the core
+connection pool; you need to (a) fix a known resource-leak bug and (b) add
+priority queuing so that health-check requests are never starved by bulk
+inference traffic.
+
+---
+
+### Existing implementation
 
 ```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
+# connection_pool.py
+"""
+Async connection pool for persistent gRPC channels to a backend inference
+server.  Each Channel wraps a single persistent HTTP/2 connection; the pool
+manages their lifecycle, health, and concurrency limits.
+"""
+from __future__ import annotations
+
+import asyncio
+import enum
+import logging
+import time
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from typing import AsyncIterator, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class ChannelState(enum.Enum):
+    IDLE = "idle"
+    IN_USE = "in_use"
+    UNHEALTHY = "unhealthy"
+    CLOSING = "closing"
+
+
+@dataclass
+class Channel:
+    """Represents a single persistent connection to the backend.
+
+    Attributes:
+        id: Unique integer identifier for logging.
+        created_at: Epoch time when the channel was opened.
+        last_used_at: Epoch time of the most recent request on this channel.
+        state: Current lifecycle state.
+        in_flight: Number of requests currently being served on this channel.
+        error_count: Consecutive failures since the last successful request.
+    """
+    id: int
+    created_at: float
+    last_used_at: float
+    state: ChannelState = ChannelState.IDLE
+    in_flight: int = 0
+    error_count: int = 0
+
+    # In production this would be a grpc.aio.Channel; we use Any here to keep
+    # the pool logic testable without a gRPC dependency.
+    _grpc_channel: object = field(default=None, repr=False)
+
+    async def close(self) -> None:
+        """Gracefully close the underlying gRPC channel."""
+        self.state = ChannelState.CLOSING
+        if self._grpc_channel is not None:
+            # grpc.aio channels expose .close(grace=...)
+            close = getattr(self._grpc_channel, "close", None)
+            if close is not None:
+                await close(grace=2.0)
+        logger.debug("channel %d closed", self.id)
+
+
+class PoolExhausted(Exception):
+    """Raised when no channel is available within the configured timeout."""
+
+
+class PoolShutdown(Exception):
+    """Raised when an operation is attempted on a shut-down pool."""
+
+
+class ConnectionPool:
+    """Async pool of persistent gRPC channels.
+
+    Callers acquire a channel via the ``acquire`` context manager.  The pool
+    enforces a maximum number of simultaneous in-flight requests across *all*
+    channels (``max_in_flight``) and a per-channel ceiling
+    (``max_per_channel``).
+
+    Parameters
+    ----------
+    size:
+        Number of channels to maintain.
+    max_per_channel:
+        Maximum concurrent requests on a single channel.
+    max_in_flight:
+        Hard ceiling on total simultaneous requests across all channels.
+    acquire_timeout:
+        Seconds to wait for a channel before raising PoolExhausted.
+    idle_timeout:
+        Channels with no traffic for this many seconds are recycled.
+    health_check_interval:
+        How often (seconds) to run the background health-checker.
+    """
+
+    def __init__(
+        self,
+        size: int = 4,
+        max_per_channel: int = 64,
+        max_in_flight: int = 256,
+        acquire_timeout: float = 5.0,
+        idle_timeout: float = 300.0,
+        health_check_interval: float = 30.0,
+    ) -> None:
+        self._size = size
+        self._max_per_channel = max_per_channel
+        self._max_in_flight = max_in_flight
+        self._acquire_timeout = acquire_timeout
+        self._idle_timeout = idle_timeout
+        self._health_check_interval = health_check_interval
+
+        self._channels: list[Channel] = []
+        self._next_id = 0
+        self._total_in_flight = 0
+        self._shutdown = False
+
+        # Semaphore guards total in-flight count.
+        self._sem = asyncio.Semaphore(max_in_flight)
+        # Event is set whenever a channel transitions to IDLE.
+        self._channel_free = asyncio.Event()
+        self._channel_free.set()
+
+        self._lock = asyncio.Lock()
+        self._health_task: Optional[asyncio.Task[None]] = None
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Open all channels and launch the background health-checker."""
+        async with self._lock:
+            for _ in range(self._size):
+                ch = await self._open_channel()
+                self._channels.append(ch)
+        self._health_task = asyncio.create_task(self._health_loop())
+        logger.info("pool started with %d channels", self._size)
+
+    async def stop(self) -> None:
+        """Drain in-flight requests and close all channels."""
+        async with self._lock:
+            self._shutdown = True
+            if self._health_task is not None:
+                self._health_task.cancel()
+        # Close channels without holding the lock (close may block briefly).
+        for ch in self._channels:
+            await ch.close()
+        logger.info("pool stopped")
+
+    @asynccontextmanager
+    async def acquire(self) -> AsyncIterator[Channel]:
+        """Acquire a channel, yield it, then release it.
+
+        Raises
+        ------
+        PoolShutdown
+            If the pool has been stopped.
+        PoolExhausted
+            If no channel becomes available within ``acquire_timeout``.
+        """
+        if self._shutdown:
+            raise PoolShutdown("pool is stopped")
+
+        # BUG (known): if asyncio.wait_for raises TimeoutError here the
+        # semaphore is acquired but never released, leaking a slot.
+        try:
+            await asyncio.wait_for(self._sem.acquire(), timeout=self._acquire_timeout)
+        except asyncio.TimeoutError:
+            raise PoolExhausted(
+                f"no channel available after {self._acquire_timeout}s"
+            )
+
+        channel = await self._pick_channel()
+        if channel is None:
+            # No healthy channel found even though the semaphore was acquired.
+            self._sem.release()
+            raise PoolExhausted("all channels are unhealthy")
+
+        channel.in_flight += 1
+        channel.state = ChannelState.IN_USE
+        channel.last_used_at = time.monotonic()
+        self._total_in_flight += 1
+
+        try:
+            yield channel
+        except Exception:
+            channel.error_count += 1
+            raise
+        finally:
+            channel.in_flight -= 1
+            self._total_in_flight -= 1
+            if channel.in_flight == 0:
+                channel.state = ChannelState.IDLE
+                self._channel_free.set()
+            self._sem.release()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    async def _open_channel(self) -> Channel:
+        now = time.monotonic()
+        ch = Channel(id=self._next_id, created_at=now, last_used_at=now)
+        self._next_id += 1
+        return ch
+
+    async def _pick_channel(self) -> Optional[Channel]:
+        """Return the least-loaded healthy channel, or None."""
+        async with self._lock:
+            candidates = [
+                ch for ch in self._channels
+                if ch.state in (ChannelState.IDLE, ChannelState.IN_USE)
+                and ch.in_flight < self._max_per_channel
+            ]
+            if not candidates:
+                return None
+            return min(candidates, key=lambda c: c.in_flight)
+
+    async def _health_loop(self) -> None:
+        """Periodically recycle idle-too-long and error-ridden channels."""
+        while not self._shutdown:
+            await asyncio.sleep(self._health_check_interval)
+            await self._reap_unhealthy()
+
+    async def _reap_unhealthy(self) -> None:
+        now = time.monotonic()
+        to_replace: list[int] = []
+        async with self._lock:
+            for ch in self._channels:
+                idle_secs = now - ch.last_used_at
+                if ch.error_count >= 3 or (
+                    ch.state == ChannelState.IDLE and idle_secs > self._idle_timeout
+                ):
+                    ch.state = ChannelState.UNHEALTHY
+                    to_replace.append(ch.id)
+
+        for bad_id in to_replace:
+            async with self._lock:
+                idx = next(
+                    (i for i, c in enumerate(self._channels) if c.id == bad_id), None
+                )
+                if idx is None:
+                    continue
+                old = self._channels[idx]
+                new = await self._open_channel()
+                self._channels[idx] = new
+            await old.close()
+            logger.info("replaced channel %d with %d", bad_id, new.id)
 ```
 
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
+---
 
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
+### Your tasks
+
+#### Task A — Fix the semaphore leak (bug)
+
+The comment in `acquire` identifies the bug: if `asyncio.wait_for` times out
+**after** the semaphore has internally been acquired (this can happen because
+`wait_for` cancels the inner coroutine, which may have already decremented the
+counter), the slot is never released.  The pool then becomes permanently
+under-capacity.
+
+Fix the leak without changing the public signature of `acquire` and without
+adding a bare `except BaseException` block that would swallow
+`KeyboardInterrupt`.
+
+#### Task B — Add priority queuing
+
+Some callers send health-check pings to verify the backend is alive; these
+must not be starved by concurrent bulk inference requests.  Add a
+``priority: int = 0`` parameter to `acquire` where **lower numbers = higher
+priority** (0 = health-check, 1 = interactive, 2 = batch).
+
+Requirements:
+
+- When the pool is saturated (semaphore at zero), higher-priority waiters must
+  be served before lower-priority ones regardless of arrival order.
+- A waiter at priority 0 that has been queued must be granted a slot before
+  any priority-2 waiter that arrives later, even if a slot opens before the
+  priority-0 waiter times out.
+- The priority mechanism must not break the existing timeout behaviour: a
+  caller that times out should raise `PoolExhausted` whether or not there are
+  other waiters in the queue.
+- Do not change the call site in `_pick_channel` or `_reap_unhealthy`.
+
+You may replace `_sem` with a different internal structure if needed.
+
+#### Task C — Add pool metrics
+
+Add a `stats()` method that returns a plain dataclass (define it in this file)
+with:
+
+- `total_channels: int`
+- `healthy_channels: int`
+- `total_in_flight: int`
+- `idle_channels: int`
+- `queue_depth: int`  (number of waiters currently blocked in `acquire`)
+
+The method must be non-blocking and must not acquire the pool lock.
+
+---
+
+### Companion module (read-only, do not modify)
+
+The pool is used alongside a circuit breaker defined in a separate file.
+You do not need to modify this file, but your changes to `connection_pool.py`
+must remain compatible with how `CircuitBreaker.call` wraps `acquire`.
 
 ```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
+# circuit_breaker.py
+from __future__ import annotations
+
+import asyncio
+import enum
+import time
+from dataclasses import dataclass
+from typing import Awaitable, Callable, TypeVar
+
+T = TypeVar("T")
+
+
+class CircuitState(enum.Enum):
+    CLOSED = "closed"        # normal — requests pass through
+    OPEN = "open"            # tripped — requests fail fast
+    HALF_OPEN = "half_open"  # probe — one request let through to test recovery
+
+
+@dataclass
+class CircuitBreaker:
+    """Async circuit breaker wrapping the connection pool.
+
+    The breaker trips to OPEN after ``failure_threshold`` consecutive failures.
+    After ``recovery_timeout`` seconds it moves to HALF_OPEN and allows one
+    probe request.  On success it resets to CLOSED; on failure it returns to
+    OPEN and restarts the timer.
+
+    Parameters
+    ----------
+    failure_threshold:
+        Consecutive failures required to trip the breaker.
+    recovery_timeout:
+        Seconds before a tripped breaker allows a probe.
+    success_threshold:
+        Consecutive successes in HALF_OPEN required to fully close.
+    """
+    failure_threshold: int = 5
+    recovery_timeout: float = 30.0
+    success_threshold: int = 2
+
+    _state: CircuitState = CircuitState.CLOSED
+    _consecutive_failures: int = 0
+    _consecutive_successes: int = 0
+    _opened_at: float = 0.0
+    _probe_in_flight: bool = False
+    _lock: asyncio.Lock = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        self._lock = asyncio.Lock()
+
+    @property
+    def state(self) -> CircuitState:
+        return self._state
+
+    async def call(
+        self,
+        fn: Callable[..., Awaitable[T]],
+        *args: object,
+        **kwargs: object,
+    ) -> T:
+        """Execute *fn* if the circuit allows, raising RuntimeError otherwise."""
+        async with self._lock:
+            if self._state == CircuitState.OPEN:
+                if time.monotonic() - self._opened_at >= self.recovery_timeout:
+                    self._state = CircuitState.HALF_OPEN
+                    self._consecutive_successes = 0
+                else:
+                    raise RuntimeError("circuit open — request rejected")
+
+            if self._state == CircuitState.HALF_OPEN and self._probe_in_flight:
+                raise RuntimeError("circuit half-open — probe in progress")
+
+            if self._state == CircuitState.HALF_OPEN:
+                self._probe_in_flight = True
+
+        try:
+            result = await fn(*args, **kwargs)
+        except Exception:
+            await self._on_failure()
+            raise
+        else:
+            await self._on_success()
+            return result
+        finally:
+            async with self._lock:
+                self._probe_in_flight = False
+
+    async def _on_failure(self) -> None:
+        async with self._lock:
+            self._consecutive_failures += 1
+            self._consecutive_successes = 0
+            if (
+                self._state == CircuitState.HALF_OPEN
+                or self._consecutive_failures >= self.failure_threshold
+            ):
+                self._state = CircuitState.OPEN
+                self._opened_at = time.monotonic()
+                self._consecutive_failures = 0
+
+    async def _on_success(self) -> None:
+        async with self._lock:
+            self._consecutive_failures = 0
+            if self._state == CircuitState.HALF_OPEN:
+                self._consecutive_successes += 1
+                if self._consecutive_successes >= self.success_threshold:
+                    self._state = CircuitState.CLOSED
 ```
 
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
+### Existing test stubs (for context — do not add tests, just ensure compatibility)
 
 ```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
+# tests/test_connection_pool.py (partial — shows how the pool is used in tests)
+import asyncio
+import pytest
+from connection_pool import ConnectionPool, PoolExhausted, PoolShutdown
+
+
+@pytest.fixture
+async def pool():
+    p = ConnectionPool(size=2, max_per_channel=2, max_in_flight=4, acquire_timeout=0.1)
+    await p.start()
+    yield p
+    await p.stop()
+
+
+async def test_basic_acquire(pool):
+    async with pool.acquire() as ch:
+        assert ch.in_flight == 1
+    assert ch.in_flight == 0
+
+
+async def test_exhausted_raises(pool):
+    # Fill all 4 slots
+    tasks = [asyncio.create_task(pool.acquire().__aenter__()) for _ in range(4)]
+    channels = await asyncio.gather(*tasks)
+    with pytest.raises(PoolExhausted):
+        async with pool.acquire():
+            pass
+
+
+async def test_priority_ordering(pool):
+    # TODO: assert that priority-0 waiters are served before priority-2 waiters
+    ...
+
+
+async def test_stats_non_blocking(pool):
+    s = pool.stats()
+    assert s.total_channels == 2
+    assert s.healthy_channels == 2
+    assert s.total_in_flight == 0
+    assert s.queue_depth == 0
 ```
 
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
+---
 
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
+### Deliverable
 
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-    return results
-```
-
-Additionally, please explain your reasoning for each suggested change and provide a revised version of the function.
-
-You are an AI coding assistant. Please review the following Python function and suggest improvements for readability, performance, and correctness. Consider edge cases, type annotations, error handling, and documentation.
-
-```python
-def process_data(items, threshold=0.5, max_retries=3):
-    results = []
-    for item in items:
-        if item.value > threshold:
-            for attempt in range(max_retries):
-                try:
-                    result = transform(item)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    if attempt == max_retries - 1:
-                        raise
-  
+Return the complete, updated `connection_pool.py`.  Do not add logging
+statements beyond those already present.  Preserve all existing docstrings.
