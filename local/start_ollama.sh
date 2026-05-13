@@ -31,6 +31,13 @@ fi
 echo "Pulling ${MODEL}..."
 ollama pull "${MODEL}"
 
+echo "Warming up ${MODEL}..."
+curl -sf "${OLLAMA_URL}/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\": \"${MODEL}\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}], \"max_tokens\": 1, \"stream\": false}" \
+    > /dev/null
+echo "Model loaded and ready."
+
 echo ""
 echo "Ready. Set MODEL_ENDPOINT_URL=${OLLAMA_URL} in your .env and run:"
 echo "  python cli.py run-local --config config/exp1_baseline.yaml"
