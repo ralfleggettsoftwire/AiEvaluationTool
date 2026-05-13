@@ -1,7 +1,6 @@
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt
-max_tokens: 128
 concurrency_levels:
   - 1
   - 5
@@ -9,4 +8,4 @@ concurrency_levels:
   - 25
   - 50
   - 100
-requests_per_level: 10
+requests_per_user: 10

@@ -13,9 +13,9 @@ class Exp4Config(BaseModel):
     model_name: str
     hardware: str
     prompt_file: str
-    max_tokens: int = 128
+    max_tokens: int | None = None
     concurrency_levels: list[int] = [1, 5, 10, 25, 50, 100]
-    requests_per_level: int = 10
+    requests_per_user: int = 10
 
 
 class Exp4Concurrency(BaseExperiment):
@@ -25,7 +25,10 @@ class Exp4Concurrency(BaseExperiment):
 
     def build_requests(self) -> list[RequestConfig]:
         prompt = Path(self._exp_config.prompt_file).read_text(encoding="utf-8")
-        total = len(self._exp_config.concurrency_levels) * self._exp_config.requests_per_level
+        total = sum(
+            level * self._exp_config.requests_per_user
+            for level in self._exp_config.concurrency_levels
+        )
         return [
             RequestConfig(prompt=prompt, max_tokens=self._exp_config.max_tokens)
             for _ in range(total)
@@ -41,16 +44,16 @@ class Exp4Concurrency(BaseExperiment):
         )
 
         prompt = Path(self._exp_config.prompt_file).read_text(encoding="utf-8")
-        level_requests = [
-            RequestConfig(prompt=prompt, max_tokens=self._exp_config.max_tokens)
-            for _ in range(self._exp_config.requests_per_level)
-        ]
 
         all_results: list[Result] = []
         started_at = datetime.now(tz=UTC)
 
         for level in self._exp_config.concurrency_levels:
             runner.set_max_concurrency(level)
+            level_requests = [
+                RequestConfig(prompt=prompt, max_tokens=self._exp_config.max_tokens)
+                for _ in range(level * self._exp_config.requests_per_user)
+            ]
             level_results = await runner.run(level_requests)
             all_results.extend(level_results)
 

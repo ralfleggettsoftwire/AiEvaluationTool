@@ -27,21 +27,22 @@ def prompt_file(tmp_path: Path) -> Path:
     return p
 
 
-def test_build_requests_returns_all_requests(prompt_file: Path) -> None:
+def test_build_requests_total_is_sum_of_level_times_requests_per_user(prompt_file: Path) -> None:
     config = Exp4Config(
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
         concurrency_levels=[1, 5, 10],
-        requests_per_level=4,
+        requests_per_user=4,
     )
     exp = Exp4Concurrency(config, Path("/tmp/unused"))
     requests = exp.build_requests()
 
-    assert len(requests) == 12
+    # 1*4 + 5*4 + 10*4 = 64
+    assert len(requests) == 64
 
 
-def test_build_requests_default_levels(prompt_file: Path) -> None:
+def test_build_requests_default_config(prompt_file: Path) -> None:
     config = Exp4Config(
         model_name="llama3",
         hardware="g4dn.xlarge",
@@ -50,7 +51,9 @@ def test_build_requests_default_levels(prompt_file: Path) -> None:
     exp = Exp4Concurrency(config, Path("/tmp/unused"))
     requests = exp.build_requests()
 
-    assert len(requests) == 6 * 10
+    # default levels [1,5,10,25,50,100], requests_per_user=10
+    expected = sum(level * 10 for level in [1, 5, 10, 25, 50, 100])
+    assert len(requests) == expected
 
 
 def test_build_requests_returns_request_config_objects(prompt_file: Path) -> None:
@@ -59,7 +62,7 @@ def test_build_requests_returns_request_config_objects(prompt_file: Path) -> Non
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
         concurrency_levels=[1, 2],
-        requests_per_level=3,
+        requests_per_user=3,
     )
     exp = Exp4Concurrency(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -76,19 +79,50 @@ async def test_run_calls_runner_once_per_concurrency_level(
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
         concurrency_levels=[1, 5, 10],
-        requests_per_level=2,
+        requests_per_user=2,
     )
     output_dir = tmp_path / "out"
     exp = Exp4Concurrency(config, output_dir)
 
     mock_runner = AsyncMock()
     mock_runner.set_max_concurrency = MagicMock()
-    mock_runner.run.return_value = [_make_result(), _make_result()]
+    # return as many results as requests passed in
+    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
 
     summary = await exp.run(mock_runner)
 
     assert mock_runner.run.call_count == 3
-    assert summary.total_requests == 6
+    # 1*2 + 5*2 + 10*2 = 32
+    assert summary.total_requests == 32
+
+
+@pytest.mark.asyncio
+async def test_run_dispatches_level_times_requests_per_user_per_step(
+    prompt_file: Path, tmp_path: Path
+) -> None:
+    config = Exp4Config(
+        model_name="llama3",
+        hardware="g4dn.xlarge",
+        prompt_file=str(prompt_file),
+        concurrency_levels=[2, 4],
+        requests_per_user=3,
+    )
+    output_dir = tmp_path / "out"
+    exp = Exp4Concurrency(config, output_dir)
+
+    mock_runner = AsyncMock()
+    mock_runner.set_max_concurrency = MagicMock()
+    dispatched: list[int] = []
+
+    async def _run(reqs: list[RequestConfig]) -> list[Result]:
+        dispatched.append(len(reqs))
+        return [_make_result() for _ in reqs]
+
+    mock_runner.run.side_effect = _run
+
+    await exp.run(mock_runner)
+
+    assert dispatched == [2 * 3, 4 * 3]
 
 
 @pytest.mark.asyncio
@@ -98,14 +132,14 @@ async def test_run_sets_concurrency_per_level(prompt_file: Path, tmp_path: Path)
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
         concurrency_levels=[1, 5],
-        requests_per_level=1,
+        requests_per_user=1,
     )
     output_dir = tmp_path / "out"
     exp = Exp4Concurrency(config, output_dir)
 
     mock_runner = AsyncMock()
     mock_runner.set_max_concurrency = MagicMock()
-    mock_runner.run.return_value = [_make_result()]
+    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
 
     await exp.run(mock_runner)
 
@@ -122,7 +156,7 @@ async def test_run_writes_config_before_first_runner_call(
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
         concurrency_levels=[1],
-        requests_per_level=1,
+        requests_per_user=1,
     )
     output_dir = tmp_path / "out"
     exp = Exp4Concurrency(config, output_dir)
@@ -131,7 +165,7 @@ async def test_run_writes_config_before_first_runner_call(
 
     async def _run(requests: list[RequestConfig]) -> list[Result]:
         config_written_before.append((output_dir / "config.yaml").exists())
-        return [_make_result()]
+        return [_make_result() for _ in requests]
 
     mock_runner = AsyncMock()
     mock_runner.set_max_concurrency = MagicMock()
