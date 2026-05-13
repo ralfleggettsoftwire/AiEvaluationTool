@@ -11,10 +11,10 @@ class Exp6Config(BaseModel):
     model_name: str
     hardware: str
     prompt_files: dict[str, str]
-    weights: dict[str, float] = {"short": 0.6, "medium": 0.3, "long": 0.1}
-    max_tokens: int = 256
-    n_requests: int = 100
-    concurrency: int = 10
+    weights: dict[str, float]
+    max_tokens: int | None = None
+    n_requests: int
+    concurrency: int
 
 
 class Exp6Workload(BaseExperiment):

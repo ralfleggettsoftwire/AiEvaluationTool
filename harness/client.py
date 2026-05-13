@@ -33,14 +33,15 @@ class LLMClient:
     async def complete(self, request: RequestConfig) -> Result:
         timestamp = datetime.now(tz=UTC)
         model = await self._get_model()
-        body = {
+        body: dict[str, object] = {
             "model": model,
             "messages": [{"role": "user", "content": request.prompt}],
-            "max_tokens": request.max_tokens,
             "temperature": request.temperature,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if request.max_tokens is not None:
+            body["max_tokens"] = request.max_tokens
 
         start = time.perf_counter()
         ttft_s: float | None = None

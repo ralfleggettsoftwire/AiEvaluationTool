@@ -10,8 +10,8 @@ class Exp1Config(BaseModel):
     model_name: str
     hardware: str
     prompt_file: str
-    max_tokens: int = 256
-    n_requests: int = 10
+    max_tokens: int | None = None
+    n_requests: int
 
 
 class Exp1Baseline(BaseExperiment):

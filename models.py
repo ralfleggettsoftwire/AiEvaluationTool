@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 class RequestConfig(BaseModel):
     prompt: str
-    max_tokens: int
+    max_tokens: int | None = None
     temperature: float = 0.0
     stream: bool = True
 

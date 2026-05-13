@@ -10,8 +10,8 @@ class Exp3Config(BaseModel):
     model_name: str
     hardware: str
     prompt_files: list[str]
-    max_tokens: int = 128
-    repeats_per_length: int = 3
+    max_tokens: int | None = None
+    repeats_per_length: int
 
 
 class Exp3Context(BaseExperiment):

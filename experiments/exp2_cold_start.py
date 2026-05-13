@@ -10,8 +10,8 @@ class Exp2Config(BaseModel):
     model_name: str
     hardware: str
     prompt_file: str
-    max_tokens: int = 64
-    n_warmup_requests: int = 3
+    max_tokens: int | None = None
+    n_warmup_requests: int
 
 
 class Exp2ColdStart(BaseExperiment):
