@@ -1,24 +1,24 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any
 
 import boto3
 from botocore.exceptions import ClientError
+
+if TYPE_CHECKING:
+    from mypy_boto3_ec2 import EC2Client
 
 
 class EC2Manager:
     def __init__(self, instance_id: str, region: str = "eu-west-1") -> None:
         self._instance_id = instance_id
-        self._client: Any = boto3.client("ec2", region_name=region)  # type: ignore[reportUnknownMemberType]
+        self._client: EC2Client = boto3.client("ec2", region_name=region)  # type: ignore[reportUnknownMemberType]
 
     def _describe(self) -> dict[str, Any]:
         try:
-            response: dict[str, Any] = self._client.describe_instances(
-                InstanceIds=[self._instance_id]
-            )
+            response = self._client.describe_instances(InstanceIds=[self._instance_id])
         except ClientError as exc:
-            error_code = cast("str", exc.response["Error"]["Code"])
-            if error_code == "InvalidInstanceID.NotFound":
+            if exc.response.get("Error", {}).get("Code") == "InvalidInstanceID.NotFound":
                 raise RuntimeError(f"Instance {self._instance_id!r} not found") from exc
             raise
         reservations: list[Any] = response.get("Reservations", [])
@@ -31,8 +31,7 @@ class EC2Manager:
         try:
             self._client.start_instances(InstanceIds=[self._instance_id])
         except ClientError as exc:
-            error_code = cast("str", exc.response["Error"]["Code"])
-            if error_code == "InvalidInstanceID.NotFound":
+            if exc.response.get("Error", {}).get("Code") == "InvalidInstanceID.NotFound":
                 raise RuntimeError(f"Instance {self._instance_id!r} not found") from exc
             raise
         waiter = self._client.get_waiter("instance_running")
@@ -46,8 +45,7 @@ class EC2Manager:
         try:
             self._client.stop_instances(InstanceIds=[self._instance_id])
         except ClientError as exc:
-            error_code2 = cast("str", exc.response["Error"]["Code"])
-            if error_code2 == "InvalidInstanceID.NotFound":
+            if exc.response.get("Error", {}).get("Code") == "InvalidInstanceID.NotFound":
                 raise RuntimeError(f"Instance {self._instance_id!r} not found") from exc
             raise
         waiter = self._client.get_waiter("instance_stopped")

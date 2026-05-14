@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import boto3
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from mypy_boto3_s3 import S3Client
+
 
 class S3Manager:
     def __init__(self, bucket: str, region: str = "eu-west-1") -> None:
         self._bucket = bucket
-        self._client: Any = boto3.client("s3", region_name=region)  # type: ignore[reportUnknownMemberType]
+        self._client: S3Client = boto3.client("s3", region_name=region)  # type: ignore[reportUnknownMemberType]
 
     def upload_directory(self, local_path: Path, s3_prefix: str) -> None:
         files = [p for p in local_path.rglob("*") if p.is_file()]
@@ -25,7 +27,6 @@ class S3Manager:
     def download_directory(self, s3_prefix: str, local_path: Path) -> None:
         keys = self.list_keys(s3_prefix)
         for key in keys:
-            # Strip the prefix (and leading slash) to get the relative path.
             relative = key[len(s3_prefix) :].lstrip("/")
             dest = local_path / relative
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -35,5 +36,5 @@ class S3Manager:
         paginator = self._client.get_paginator("list_objects_v2")
         keys: list[str] = []
         for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
-            keys.extend(obj["Key"] for obj in page.get("Contents", []))
+            keys.extend(obj["Key"] for obj in page.get("Contents", []))  # type: ignore[typeddict-item]
         return keys

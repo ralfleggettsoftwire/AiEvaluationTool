@@ -1,6 +1,6 @@
-from collections.abc import Generator
-from pathlib import Path
-from typing import Any, cast
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import boto3
 import pytest
@@ -8,14 +8,20 @@ from moto import mock_aws
 
 from management.s3 import S3Manager
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
+
+    from mypy_boto3_s3 import S3Client
+
 REGION = "eu-west-1"
 BUCKET = "test-results-bucket"
 
 
 @pytest.fixture
-def s3_bucket() -> Generator[Any, None, None]:
+def s3_bucket() -> Generator[S3Client, None, None]:
     with mock_aws():
-        client = cast("Any", boto3.client("s3", region_name=REGION))  # type: ignore[reportUnknownMemberType]
+        client: S3Client = boto3.client("s3", region_name=REGION)  # type: ignore[reportUnknownMemberType]
         client.create_bucket(
             Bucket=BUCKET,
             CreateBucketConfiguration={"LocationConstraint": REGION},
@@ -24,7 +30,7 @@ def s3_bucket() -> Generator[Any, None, None]:
 
 
 @pytest.fixture
-def manager(s3_bucket: Any) -> S3Manager:
+def manager(s3_bucket: S3Client) -> S3Manager:
     return S3Manager(bucket=BUCKET, region=REGION)
 
 
