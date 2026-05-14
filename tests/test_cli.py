@@ -25,13 +25,6 @@ def ec2_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def ssh_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HARNESS_SSH_HOST", "1.2.3.4")
-    monkeypatch.setenv("HARNESS_SSH_USER", "ubuntu")
-    monkeypatch.setenv("HARNESS_SSH_KEY_PATH", "/home/user/.ssh/id_rsa")
-
-
-@pytest.fixture
 def s3_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("S3_BUCKET", "my-results-bucket")
     monkeypatch.setenv("AWS_REGION", "eu-west-1")
@@ -48,7 +41,7 @@ class TestStart:
     def test_success_prints_ip(self, runner: CliRunner, ec2_env: None) -> None:
         mock_manager = MagicMock()
         mock_manager.return_value.start.return_value = "54.0.0.1"
-        with patch("cli.EC2Manager", mock_manager), patch("cli.find_dotenv", return_value=""):
+        with patch("cli.EC2Manager", mock_manager):
             result = runner.invoke(cli, ["start"])
         assert result.exit_code == 0
         assert "54.0.0.1" in result.output
@@ -56,7 +49,7 @@ class TestStart:
     def test_error_exits_nonzero(self, runner: CliRunner, ec2_env: None) -> None:
         mock_manager = MagicMock()
         mock_manager.return_value.start.side_effect = RuntimeError("Instance not found")
-        with patch("cli.EC2Manager", mock_manager), patch("cli.find_dotenv", return_value=""):
+        with patch("cli.EC2Manager", mock_manager):
             result = runner.invoke(cli, ["start"])
         assert result.exit_code != 0
 
@@ -65,22 +58,6 @@ class TestStart:
             result = runner.invoke(cli, ["start"])
         assert result.exit_code == 1
         assert "HARNESS_INSTANCE_ID" in result.output
-
-    def test_updates_dot_env_with_new_ip(
-        self, runner: CliRunner, ec2_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        env_file = tmp_path / ".env"
-        env_file.write_text("HARNESS_SSH_HOST=old.ip\n", encoding="utf-8")
-        mock_manager = MagicMock()
-        mock_manager.return_value.start.return_value = "54.0.0.1"
-        with (
-            patch("cli.EC2Manager", mock_manager),
-            patch("cli.find_dotenv", return_value=str(env_file)),
-            patch("cli.set_key") as mock_set_key,
-        ):
-            result = runner.invoke(cli, ["start"])
-        assert result.exit_code == 0
-        mock_set_key.assert_called_once_with(str(env_file), "HARNESS_SSH_HOST", "54.0.0.1")
 
 
 class TestStop:
@@ -143,37 +120,37 @@ class TestStatus:
 
 
 class TestRun:
-    def test_success(self, runner: CliRunner, ssh_env: None, temp_config: str) -> None:
-        mock_ssh = MagicMock()
-        with patch("cli.SSHManager", mock_ssh):
+    def test_success(self, runner: CliRunner, ec2_env: None, temp_config: str) -> None:
+        mock_ssm = MagicMock()
+        with patch("cli.SSMManager", mock_ssm):
             result = runner.invoke(cli, ["run", "--config", temp_config])
         assert result.exit_code == 0
         assert "Experiment started." in result.output
 
     def test_upload_and_run_called_with_same_remote_path(
-        self, runner: CliRunner, ssh_env: None, temp_config: str
+        self, runner: CliRunner, ec2_env: None, temp_config: str
     ) -> None:
-        mock_ssh_cls = MagicMock()
-        mock_instance = mock_ssh_cls.return_value
-        with patch("cli.SSHManager", mock_ssh_cls):
+        mock_ssm_cls = MagicMock()
+        mock_instance = mock_ssm_cls.return_value
+        with patch("cli.SSMManager", mock_ssm_cls):
             runner.invoke(cli, ["run", "--config", temp_config])
         mock_instance.upload_config.assert_called_once()
         remote_path = mock_instance.upload_config.call_args[0][1]
         mock_instance.run_experiment.assert_called_once_with(remote_path)
 
-    def test_ssh_error_exits_nonzero(
-        self, runner: CliRunner, ssh_env: None, temp_config: str
+    def test_ssm_error_exits_nonzero(
+        self, runner: CliRunner, ec2_env: None, temp_config: str
     ) -> None:
-        mock_ssh_cls = MagicMock()
-        mock_ssh_cls.return_value.upload_config.side_effect = OSError("Connection refused")
-        with patch("cli.SSHManager", mock_ssh_cls):
+        mock_ssm_cls = MagicMock()
+        mock_ssm_cls.return_value.upload_config.side_effect = OSError("Connection refused")
+        with patch("cli.SSMManager", mock_ssm_cls):
             result = runner.invoke(cli, ["run", "--config", temp_config])
         assert result.exit_code != 0
         assert "Error" in result.output
 
-    def test_missing_config_exits_nonzero(self, runner: CliRunner, ssh_env: None) -> None:
-        mock_ssh = MagicMock()
-        with patch("cli.SSHManager", mock_ssh):
+    def test_missing_config_exits_nonzero(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        with patch("cli.SSMManager", mock_ssm):
             result = runner.invoke(cli, ["run", "--config", "/nonexistent/path.yaml"])
         assert result.exit_code != 0
 
@@ -181,6 +158,7 @@ class TestRun:
         with patch.dict(os.environ, {}, clear=True):
             result = runner.invoke(cli, ["run", "--config", temp_config])
         assert result.exit_code == 1
+        assert "HARNESS_INSTANCE_ID" in result.output
 
 
 class TestDownload:
@@ -224,26 +202,26 @@ class TestDownload:
 
 
 class TestExperimentStatus:
-    def test_running_prints_running(self, runner: CliRunner, ssh_env: None) -> None:
-        mock_ssh = MagicMock()
-        mock_ssh.return_value.get_experiment_status.return_value = True
-        with patch("cli.SSHManager", mock_ssh):
+    def test_running_prints_running(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.get_experiment_status.return_value = True
+        with patch("cli.SSMManager", mock_ssm):
             result = runner.invoke(cli, ["experiment-status"])
         assert result.exit_code == 0
         assert "running" in result.output
 
-    def test_idle_prints_idle(self, runner: CliRunner, ssh_env: None) -> None:
-        mock_ssh = MagicMock()
-        mock_ssh.return_value.get_experiment_status.return_value = False
-        with patch("cli.SSHManager", mock_ssh):
+    def test_idle_prints_idle(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.get_experiment_status.return_value = False
+        with patch("cli.SSMManager", mock_ssm):
             result = runner.invoke(cli, ["experiment-status"])
         assert result.exit_code == 0
         assert "idle" in result.output
 
-    def test_error_exits_nonzero(self, runner: CliRunner, ssh_env: None) -> None:
-        mock_ssh = MagicMock()
-        mock_ssh.return_value.get_experiment_status.side_effect = RuntimeError("SSH error")
-        with patch("cli.SSHManager", mock_ssh):
+    def test_error_exits_nonzero(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.get_experiment_status.side_effect = RuntimeError("SSM error")
+        with patch("cli.SSMManager", mock_ssm):
             result = runner.invoke(cli, ["experiment-status"])
         assert result.exit_code != 0
         assert "Error" in result.output
@@ -252,3 +230,4 @@ class TestExperimentStatus:
         with patch.dict(os.environ, {}, clear=True):
             result = runner.invoke(cli, ["experiment-status"])
         assert result.exit_code == 1
+        assert "HARNESS_INSTANCE_ID" in result.output

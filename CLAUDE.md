@@ -34,7 +34,7 @@ All code changes **must** pass the following without errors or warnings:
 ## Architecture
 
 ```
-cli.py                  # click CLI — local entry point; manages EC2/SSH/S3 and local runs
+cli.py                  # click CLI — local entry point; manages EC2/SSM/S3 and local runs
 models.py               # all shared Pydantic models (RequestConfig, Result, ExperimentSummary, …)
 harness/
   client.py             # LLMClient: async httpx, raw SSE parsing, TTFT measurement
@@ -47,7 +47,7 @@ experiments/
 management/
   ec2_manager.py        # boto3: start/stop harness instance, waiters, public IP
   s3.py                 # boto3: upload/download result directories
-  ssh.py                # fabric: config upload, remote experiment trigger
+  ssm.py                # boto3 SSM: config upload (base64 via SSM), remote experiment trigger, status check
 config/                 # example YAML configs (one per experiment type)
 prompts/                # static prompt files at 1k/4k/32k/128k token lengths
 tests/                  # mirrors source tree; unit tests only, all I/O mocked
@@ -57,7 +57,7 @@ tests/                  # mirrors source tree; unit tests only, all I/O mocked
 
 **Config-driven experiment registration.** `local_runner.py` maintains a registry dict mapping `experiment_type` strings to `(ConfigClass, ExperimentClass)` pairs. Adding a new experiment requires registering it there; the CLI and YAML format work automatically.
 
-**Two run modes.** `cli run` uploads a config to the harness EC2 instance and triggers it via SSH (remote mode). `cli run-local` calls `run_from_config()` directly using `MODEL_ENDPOINT_URL` from the environment (local mode, no EC2 needed).
+**Two run modes.** `cli run` uploads a config to the harness EC2 instance and triggers it via SSM (remote mode). `cli run-local` calls `run_from_config()` directly using `MODEL_ENDPOINT_URL` from the environment (local mode, no EC2 needed).
 
 **TTFT precision.** `LLMClient.complete()` records the timestamp of the first `data:` SSE line, not the response open. The `openai` SDK is not used because it may buffer internally.
 
@@ -107,6 +107,6 @@ Unit tests only — no integration or end-to-end tests. All network I/O is mocke
 
 - **`respx`** — mocks `httpx` at the transport layer, including chunked SSE responses
 - **`moto[ec2,s3]`** — in-process AWS mock for `boto3`
-- **`unittest.mock`** — patches `fabric.Connection` for SSH tests
+- **`unittest.mock`** — patches `boto3.client` for SSM tests
 
 `pytest-asyncio` is configured with `asyncio_mode = "auto"` — all `async def` tests run automatically without `@pytest.mark.asyncio`.
