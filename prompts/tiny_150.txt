@@ -1,0 +1,32 @@
+You are an AI coding assistant providing inline completions. Output ONLY the expression that replaces the `<CURSOR>` marker — one line, no explanation, no markdown fences, no surrounding code.
+
+```python
+# utils/pagination.py
+
+from dataclasses import dataclass
+from typing import Generic, TypeVar
+
+T = TypeVar("T")
+
+
+@dataclass
+class Page(Generic[T]):
+    items: list[T]
+    page: int
+    page_size: int
+    total: int
+
+    @property
+    def total_pages(self) -> int:
+        return <CURSOR>
+
+    @property
+    def has_next(self) -> bool:
+        return self.page < self.total_pages - 1
+
+    @property
+    def has_prev(self) -> bool:
+        return self.page > 0
+```
+
+Complete `total_pages`. No imports are available beyond what is shown.

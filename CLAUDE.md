@@ -65,7 +65,7 @@ tests/                  # mirrors source tree; unit tests only, all I/O mocked
 
 **Summary stats exclude errors.** `BaseExperiment._finalise()` computes p50/p95/p99 over successful requests only (where `error` is null). Error and timeout counts are reported separately in `summary.json`.
 
-**Experiments with sub-runs write subdirectories.** Exp3 (context length) and Exp4 (concurrency ramp) create a subdirectory per level (e.g. `level_1/`, `00_short_1k/`) and write independent result sets in each.
+**Experiments with sub-runs write subdirectories.** Exp3 (context length) and Exp4 (concurrency ramp) create a subdirectory per level (e.g. `level_1/`, `00_small_1k/`) and write independent result sets in each.
 
 ## Results Directory Structure
 

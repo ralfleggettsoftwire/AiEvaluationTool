@@ -1,0 +1,13 @@
+experiment_type: exp6_workload
+model_name: qwen2.5-coder:7b
+hardware: local-macbook
+prompt_files:
+  tiny: prompts/tiny_150.txt
+  small: prompts/small_1k.txt
+weights:
+  tiny: 0.80
+  small: 0.20
+max_tokens: 64
+n_requests: 200
+concurrency: 50
+request_timeout_s: 30

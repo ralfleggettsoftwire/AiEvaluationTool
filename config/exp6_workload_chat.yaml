@@ -2,14 +2,14 @@ experiment_type: exp6_workload
 model_name: qwen2.5-coder:7b
 hardware: local-macbook
 prompt_files:
-  short: prompts/short_1k.txt
+  small: prompts/small_1k.txt
   medium: prompts/medium_4k.txt
-  long: prompts/long_32k.txt
+  large: prompts/large_32k.txt
   xlarge: prompts/xlarge_128k.txt
 weights:
-  short: 0.50
+  small: 0.50
   medium: 0.35
-  long: 0.12
+  large: 0.12
   xlarge: 0.03
 n_requests: 100
 concurrency: 10
