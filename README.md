@@ -146,7 +146,7 @@ Measures warm-up after a cold GPU start. Run this immediately after the GPU inst
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/small_1k.txt
-max_tokens: 1          # only TTFT matters here; stop after the first token
+max_tokens: 1          # Optional, but only TTFT matters here so suggest always setting to 1
 n_warmup_requests: 5
 request_timeout_s: 30
 ```
@@ -185,6 +185,7 @@ concurrency_levels:
   - 5
   - 10
   - 25
+  # add / remove levels to test at
 requests_per_user: 10
 request_timeout_s: 30
 ```
