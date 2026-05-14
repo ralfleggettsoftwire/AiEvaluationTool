@@ -29,6 +29,19 @@ class SummaryStats(BaseModel):
     max: float
 
 
+class GpuSample(BaseModel):
+    timestamp: datetime
+    gpu_cache_usage_perc: float | None = None
+    num_requests_running: float | None = None
+    num_requests_waiting: float | None = None
+
+
+class GpuStats(BaseModel):
+    gpu_cache_usage_perc: SummaryStats | None = None
+    num_requests_running: SummaryStats | None = None
+    num_requests_waiting: SummaryStats | None = None
+
+
 class ExperimentSummary(BaseModel):
     model_name: str
     hardware: str
@@ -40,3 +53,4 @@ class ExperimentSummary(BaseModel):
     ttft: SummaryStats
     total_latency: SummaryStats
     tokens_per_sec: SummaryStats
+    gpu_metrics: GpuStats | None = None

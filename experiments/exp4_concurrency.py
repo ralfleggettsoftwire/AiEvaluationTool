@@ -43,8 +43,8 @@ class Exp4Concurrency(BaseExperiment):
             encoding="utf-8",
         )
 
+        poller = runner.metrics_poller
         prompt = Path(self._exp_config.prompt_file).read_text(encoding="utf-8")
-
         all_results: list[Result] = []
         started_at = datetime.now(tz=UTC)
 
@@ -54,8 +54,25 @@ class Exp4Concurrency(BaseExperiment):
                 RequestConfig(prompt=prompt, max_tokens=self._exp_config.max_tokens)
                 for _ in range(level * self._exp_config.requests_per_user)
             ]
+            level_started_at = datetime.now(tz=UTC)
             level_results = await runner.run(level_requests)
+            level_completed_at = datetime.now(tz=UTC)
+            level_samples = poller.checkpoint() if poller else None
+
+            subdir = self._output_dir / f"level_{level}"
+            self._finalise(
+                level_results,
+                level_started_at,
+                level_completed_at,
+                output_dir=subdir,
+                gpu_samples=level_samples,
+            )
             all_results.extend(level_results)
 
         completed_at = datetime.now(tz=UTC)
-        return self._finalise(all_results, started_at, completed_at)
+        return self._finalise(
+            all_results,
+            started_at,
+            completed_at,
+            gpu_samples=poller.get_samples() if poller else None,
+        )

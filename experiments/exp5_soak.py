@@ -55,4 +55,10 @@ class Exp5Soak(BaseExperiment):
         await asyncio.gather(*[user_loop() for _ in range(self._exp_config.concurrency)])
 
         completed_at = datetime.now(tz=UTC)
-        return self._finalise(all_results, started_at, completed_at)
+        poller = runner.metrics_poller
+        return self._finalise(
+            all_results,
+            started_at,
+            completed_at,
+            gpu_samples=poller.get_samples() if poller else None,
+        )

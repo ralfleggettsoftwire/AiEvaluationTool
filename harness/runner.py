@@ -52,6 +52,10 @@ class Runner:
         assert all(r is not None for r in results), "BUG: unfilled result slot"
         return [r for r in results if r is not None]
 
+    @property
+    def metrics_poller(self) -> MetricsPoller | None:
+        return self._metrics_poller
+
     def set_max_concurrency(self, max_concurrency: int) -> None:
         self._sem = asyncio.Semaphore(max_concurrency)
 

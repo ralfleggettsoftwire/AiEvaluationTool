@@ -7,8 +7,9 @@ import numpy as np
 import yaml
 from pydantic import BaseModel
 
+from harness.metrics import compute_gpu_stats
 from harness.runner import Runner
-from models import ExperimentSummary, RequestConfig, Result, SummaryStats
+from models import ExperimentSummary, GpuSample, RequestConfig, Result, SummaryStats
 
 
 def _compute_stats(values: list[float]) -> SummaryStats:
@@ -46,25 +47,38 @@ class BaseExperiment(ABC):
         results = await runner.run(self.build_requests())
         completed_at = datetime.now(tz=UTC)
 
-        return self._finalise(results, started_at, completed_at)
+        poller = runner.metrics_poller
+        return self._finalise(
+            results,
+            started_at,
+            completed_at,
+            gpu_samples=poller.get_samples() if poller else None,
+        )
 
     def _finalise(
         self,
         results: list[Result],
         started_at: datetime,
         completed_at: datetime,
+        output_dir: Path | None = None,
+        gpu_samples: list[GpuSample] | None = None,
     ) -> ExperimentSummary:
-        results_path = self._output_dir / "results.jsonl"
+        resolved_dir = output_dir if output_dir is not None else self._output_dir
+        resolved_dir.mkdir(parents=True, exist_ok=True)
+
+        results_path = resolved_dir / "results.jsonl"
         with results_path.open("w", encoding="utf-8") as fh:
             for r in results:
                 fh.write(r.model_dump_json() + "\n")
 
+        if gpu_samples:
+            metrics_path = resolved_dir / "metrics.jsonl"
+            with metrics_path.open("w", encoding="utf-8") as fh:
+                for s in gpu_samples:
+                    fh.write(s.model_dump_json() + "\n")
+
         error_count = sum(1 for r in results if r.error is not None)
         successful = [r for r in results if r.error is None]
-
-        ttft_values = [r.ttft_s for r in successful]
-        latency_values = [r.total_latency_s for r in successful]
-        tps_values = [r.tokens_per_sec for r in successful]
 
         config_dict = self._config.model_dump(mode="json")
         summary = ExperimentSummary(
@@ -75,12 +89,13 @@ class BaseExperiment(ABC):
             completed_at=completed_at,
             total_requests=len(results),
             error_count=error_count,
-            ttft=_compute_stats(ttft_values),
-            total_latency=_compute_stats(latency_values),
-            tokens_per_sec=_compute_stats(tps_values),
+            ttft=_compute_stats([r.ttft_s for r in successful]),
+            total_latency=_compute_stats([r.total_latency_s for r in successful]),
+            tokens_per_sec=_compute_stats([r.tokens_per_sec for r in successful]),
+            gpu_metrics=compute_gpu_stats(gpu_samples) if gpu_samples else None,
         )
 
-        summary_path = self._output_dir / "summary.json"
+        summary_path = resolved_dir / "summary.json"
         summary_path.write_text(
             json.dumps(json.loads(summary.model_dump_json()), indent=2),
             encoding="utf-8",
