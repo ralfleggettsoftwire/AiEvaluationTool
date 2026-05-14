@@ -23,6 +23,7 @@ from experiments.exp6_workload import Exp6Config, Exp6Workload
 from harness.client import LLMClient
 from harness.metrics import MetricsPoller
 from harness.runner import Runner
+from management.s3 import S3Manager
 
 _console = Console()
 _err_console = Console(stderr=False)
@@ -94,6 +95,14 @@ async def run_from_config(config_path: Path) -> None:
         summary = await experiment.run(runner)
 
     _print_summary(summary)
+
+    bucket = os.environ.get("S3_BUCKET")
+    if bucket:
+        region = os.environ.get("AWS_REGION", "eu-west-1")
+        s3 = S3Manager(bucket, region)
+        s3_prefix = output_dir.as_posix()
+        s3.upload_directory(output_dir, s3_prefix)
+        _console.print(f"Results   : [green]uploaded to s3://{bucket}/{s3_prefix}[/green]")
 
 
 def _print_summary(summary: ExperimentSummary) -> None:

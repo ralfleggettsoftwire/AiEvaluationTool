@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 import click
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv, set_key
 
 from harness.local_runner import run_from_config
 from management.ec2_manager import EC2Manager
@@ -41,6 +41,9 @@ def start() -> None:
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
+    env_file = find_dotenv(usecwd=True)
+    if env_file:
+        set_key(env_file, "HARNESS_SSH_HOST", ip)
     click.echo(ip)
 
 
@@ -128,6 +131,21 @@ def download(model: str | None, experiment: str | None) -> None:
     s3 = S3Manager(bucket, region)
     s3.download_directory(prefix, Path("./results"))
     click.echo("Downloaded to ./results/")
+
+
+@cli.command("experiment-status")
+def experiment_status() -> None:
+    """Check whether an experiment is currently running on the harness instance."""
+    host = _require_env("HARNESS_SSH_HOST")
+    user = _require_env("HARNESS_SSH_USER")
+    key_path = _require_env("HARNESS_SSH_KEY_PATH")
+    ssh = SSHManager(host, user, key_path)
+    try:
+        running = ssh.get_experiment_status()
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    click.echo("running" if running else "idle")
 
 
 if __name__ == "__main__":

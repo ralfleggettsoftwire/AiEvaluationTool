@@ -65,6 +65,21 @@ def test_run_experiment_quotes_config_path(mock_conn_cls: MagicMock, manager: SS
 
 
 @patch("management.ssh.Connection")
+def test_run_experiment_uses_uv_cli_run_local(
+    mock_conn_cls: MagicMock, manager: SSHManager
+) -> None:
+    conn = _make_conn()
+    mock_conn_cls.return_value = conn
+
+    manager.run_experiment("/home/ec2-user/config.yaml")
+
+    cmd: str = conn.run.call_args[0][0]
+    assert "cd ~/harness-repo" in cmd
+    assert "source ~/.bashrc" in cmd
+    assert "uv run python cli.py run-local" in cmd
+
+
+@patch("management.ssh.Connection")
 def test_get_experiment_status_returns_true_when_running(
     mock_conn_cls: MagicMock, manager: SSHManager
 ) -> None:

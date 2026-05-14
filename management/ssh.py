@@ -28,7 +28,10 @@ class SSHManager:
 
     def run_experiment(self, config_path: str) -> None:
         quoted = shlex.quote(config_path)
-        cmd = f"nohup python harness/runner.py --config {quoted} &>/dev/null & disown"
+        cmd = (
+            f"cd ~/harness-repo && source ~/.bashrc && "
+            f"nohup uv run python cli.py run-local --config {quoted} >> ~/harness.log 2>&1 & disown"
+        )
         with self._connect() as conn:
             conn.run(cmd, disown=True)
 

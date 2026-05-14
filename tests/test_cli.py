@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -48,7 +45,7 @@ class TestStart:
     def test_success_prints_ip(self, runner: CliRunner, ec2_env: None) -> None:
         mock_manager = MagicMock()
         mock_manager.return_value.start.return_value = "54.0.0.1"
-        with patch("cli.EC2Manager", mock_manager):
+        with patch("cli.EC2Manager", mock_manager), patch("cli.find_dotenv", return_value=""):
             result = runner.invoke(cli, ["start"])
         assert result.exit_code == 0
         assert "54.0.0.1" in result.output
@@ -56,7 +53,7 @@ class TestStart:
     def test_error_exits_nonzero(self, runner: CliRunner, ec2_env: None) -> None:
         mock_manager = MagicMock()
         mock_manager.return_value.start.side_effect = RuntimeError("Instance not found")
-        with patch("cli.EC2Manager", mock_manager):
+        with patch("cli.EC2Manager", mock_manager), patch("cli.find_dotenv", return_value=""):
             result = runner.invoke(cli, ["start"])
         assert result.exit_code != 0
 
@@ -65,6 +62,22 @@ class TestStart:
             result = runner.invoke(cli, ["start"])
         assert result.exit_code == 1
         assert "HARNESS_INSTANCE_ID" in result.output
+
+    def test_updates_dot_env_with_new_ip(
+        self, runner: CliRunner, ec2_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text("HARNESS_SSH_HOST=old.ip\n", encoding="utf-8")
+        mock_manager = MagicMock()
+        mock_manager.return_value.start.return_value = "54.0.0.1"
+        with (
+            patch("cli.EC2Manager", mock_manager),
+            patch("cli.find_dotenv", return_value=str(env_file)),
+            patch("cli.set_key") as mock_set_key,
+        ):
+            result = runner.invoke(cli, ["start"])
+        assert result.exit_code == 0
+        mock_set_key.assert_called_once_with(str(env_file), "HARNESS_SSH_HOST", "54.0.0.1")
 
 
 class TestStop:
@@ -205,3 +218,34 @@ class TestDownload:
             result = runner.invoke(cli, ["download"])
         assert result.exit_code == 1
         assert "S3_BUCKET" in result.output
+
+
+class TestExperimentStatus:
+    def test_running_prints_running(self, runner: CliRunner, ssh_env: None) -> None:
+        mock_ssh = MagicMock()
+        mock_ssh.return_value.get_experiment_status.return_value = True
+        with patch("cli.SSHManager", mock_ssh):
+            result = runner.invoke(cli, ["experiment-status"])
+        assert result.exit_code == 0
+        assert "running" in result.output
+
+    def test_idle_prints_idle(self, runner: CliRunner, ssh_env: None) -> None:
+        mock_ssh = MagicMock()
+        mock_ssh.return_value.get_experiment_status.return_value = False
+        with patch("cli.SSHManager", mock_ssh):
+            result = runner.invoke(cli, ["experiment-status"])
+        assert result.exit_code == 0
+        assert "idle" in result.output
+
+    def test_error_exits_nonzero(self, runner: CliRunner, ssh_env: None) -> None:
+        mock_ssh = MagicMock()
+        mock_ssh.return_value.get_experiment_status.side_effect = RuntimeError("SSH error")
+        with patch("cli.SSHManager", mock_ssh):
+            result = runner.invoke(cli, ["experiment-status"])
+        assert result.exit_code != 0
+        assert "Error" in result.output
+
+    def test_missing_env_exits_1(self, runner: CliRunner) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            result = runner.invoke(cli, ["experiment-status"])
+        assert result.exit_code == 1

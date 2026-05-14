@@ -9,7 +9,7 @@ The model server is **vLLM**, which exposes an OpenAI-compatible REST API and a 
 ```
 Local machine (you)
     │
-    │  cli.py  (start / stop / status / run / download)
+    │  cli.py  (start / stop / status / run / experiment-status / download)
     ▼
 Harness EC2 instance  (t3.large, same VPC as GPU instances)
     │
@@ -25,12 +25,34 @@ Results are uploaded to S3 immediately after each run so they survive instance s
 
 ## Prerequisites
 
-- Python 3.12+ and [`uv`](https://github.com/astral-sh/uv)
-- AWS credentials with EC2, S3, and Pricing API access
+- Python 3.12+ and [`uv`](https://github.com/astral-sh/uv) — on your **local machine**
+- AWS credentials with EC2, S3, and Pricing API access — on your **local machine**
 - A running vLLM server (the harness does **not** start GPU instances — do that manually)
-- A `t3.large` harness EC2 instance already created (pass its ID via `HARNESS_INSTANCE_ID`)
+- A `t3.large` harness EC2 instance **already created** in the same VPC as the GPU instances (its ID goes in `HARNESS_INSTANCE_ID`); see [Harness instance setup](#harness-instance-setup) below
+- An S3 bucket **already created** for result storage (its name goes in `S3_BUCKET`)
 
-## Setup
+To create the harness instance and S3 bucket via the AWS CLI (one-time):
+
+```bash
+# S3 bucket
+aws s3api create-bucket \
+  --bucket my-llm-eval-results \
+  --region eu-west-1 \
+  --create-bucket-configuration LocationConstraint=eu-west-1
+
+# Harness EC2 instance — use an AL2023 AMI; adjust SG and key-pair name
+aws ec2 run-instances \
+  --image-id <al2023-ami-id-for-your-region> \
+  --instance-type t3.large \
+  --key-name harness-key \
+  --security-group-ids <sg-id> \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=llm-eval-harness}]'
+# Note the InstanceId from the output and put it in .env as HARNESS_INSTANCE_ID
+```
+
+## Local setup
+
+Run these commands on your **local machine**:
 
 ```bash
 git clone <this-repo>
@@ -39,37 +61,83 @@ uv sync
 cp .env.example .env   # then fill in your values
 ```
 
+## Harness instance setup
+
+These commands are run **once on the harness EC2 instance** (SSH in after creation). The harness instance is a CPU-only box; it only needs Python, `uv`, and the project code.
+
+```bash
+# Install Python 3.12 and uv
+sudo dnf install -y python3.12 git
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.bashrc
+
+# Clone the project and install dependencies
+git clone <this-repo> ~/harness-repo
+cd ~/harness-repo
+uv sync
+
+# Persist required environment variables — the experiment runner reads these at runtime
+cat >> ~/.bashrc <<'EOF'
+export MODEL_ENDPOINT_URL=http://<gpu-instance-private-ip>:8000
+export S3_BUCKET=my-llm-eval-results
+export AWS_REGION=eu-west-1
+EOF
+source ~/.bashrc
+```
+
+**Networking assumptions this code makes:**
+- The harness instance and GPU instance are in the **same VPC** so the harness can reach the model via private IP.
+- The GPU instance's security group allows **inbound TCP 8000** from the harness instance's security group.
+- The harness instance has an **IAM instance profile** with `s3:PutObject` permission on the results bucket (so experiment results can be uploaded after each run).
+- The harness instance is reachable via **SSH on port 22** from your local machine using the key at `HARNESS_SSH_KEY_PATH`.
+
 ## Local testing
 
 To verify the harness works before incurring AWS costs, you can run experiments locally on a MacBook using [Ollama](https://ollama.com). See **[local/README.md](local/README.md)** for setup instructions.
 
 ## Environment variables
 
-Copy `.env.example` to `.env` and fill in your values. Source it before running CLI commands (`source .env` or use a tool like [`direnv`](https://direnv.net/)). Never commit `.env` — it is gitignored.
+### Local machine (`.env`)
+
+Copy `.env.example` to `.env` and fill in your values. The CLI reads this file on startup. Never commit `.env` — it is gitignored.
+
+`HARNESS_SSH_HOST` is automatically updated in `.env` by `cli.py start` each time the instance gets a new public IP, so you do not need to update it manually.
 
 | Variable | Required for | Description |
 |----------|-------------|-------------|
 | `HARNESS_INSTANCE_ID` | `start`, `stop`, `status` | EC2 instance ID of the harness box (e.g. `i-0abc123`) |
-| `HARNESS_SSH_HOST` | `run` | Public IP of the harness instance (available after `start`) |
-| `HARNESS_SSH_USER` | `run` | SSH username (typically `ec2-user` or `ubuntu`) |
-| `HARNESS_SSH_KEY_PATH` | `run` | Local path to the SSH private key |
+| `HARNESS_SSH_HOST` | `run`, `experiment-status` | Public IP of the harness instance — auto-updated by `start` |
+| `HARNESS_SSH_USER` | `run`, `experiment-status` | SSH username (typically `ec2-user`) |
+| `HARNESS_SSH_KEY_PATH` | `run`, `experiment-status` | Local path to the SSH private key |
 | `S3_BUCKET` | `download` | S3 bucket name for result storage |
 | `AWS_REGION` | all | AWS region (default: `eu-west-1`) |
 
+### Harness instance (`~/.bashrc`)
+
+The experiment runner on the harness instance reads these at runtime (set during [instance setup](#harness-instance-setup)):
+
+| Variable | Description |
+|----------|-------------|
+| `MODEL_ENDPOINT_URL` | Private IP URL of the vLLM server, e.g. `http://10.0.1.5:8000` |
+| `S3_BUCKET` | Same bucket name — results are uploaded here after each run |
+| `AWS_REGION` | AWS region (default: `eu-west-1`) |
+
 ## Typical workflow
+
+All `cli.py` commands run on your **local machine**. The experiment itself runs on the **harness EC2 instance** in the background, triggered via SSH.
 
 ### 1. Start the harness instance
 
 ```bash
-python cli.py start
+uv run python cli.py start
 # prints the public IP, e.g. 54.12.34.56
-export HARNESS_SSH_HOST=54.12.34.56
+# HARNESS_SSH_HOST is automatically updated in .env
 ```
 
-### 2. Check the harness is reachable
+### 2. Verify the instance is reachable
 
 ```bash
-python cli.py status
+uv run python cli.py status
 # Status: running
 # IP: 54.12.34.56
 ```
@@ -79,38 +147,55 @@ python cli.py status
 Pick one of the pre-built configs in `config/`, or write your own (see [Configuring experiments](#configuring-experiments)):
 
 ```bash
-python cli.py run --config config/exp1_baseline_small.yaml
+uv run python cli.py run --config config/exp1_baseline_small.yaml
 # Experiment started.
 ```
 
-The config is uploaded to the harness instance and the experiment runs in the background. The harness streams logs to disk; use SSH if you need to tail them.
+This uploads the config to the harness instance via SSH and starts the experiment in the background. The experiment process on the harness instance logs to `~/harness.log` — SSH in and `tail -f ~/harness.log` if you need to watch progress.
 
-### 4. Download results
+### 4. Monitor until complete
+
+```bash
+uv run python cli.py experiment-status
+# running   (experiment is still in progress)
+# idle      (experiment has finished)
+```
+
+Poll this command until it prints `idle`, or tail the log on the harness instance directly:
+
+```bash
+# run on the harness instance
+tail -f ~/harness.log
+```
+
+### 5. Download results
+
+Results are uploaded to S3 automatically when each experiment finishes. Pull them to your local machine:
 
 ```bash
 # All results
-python cli.py download
+uv run python cli.py download
 
 # Only results for a specific model
-python cli.py download --model llama3-8b
+uv run python cli.py download --model llama3-8b
 
 # Only a specific experiment for a model
-python cli.py download --model llama3-8b --experiment exp1_baseline
+uv run python cli.py download --model llama3-8b --experiment Exp1Baseline
 ```
 
-Results are written to `./results/` (gitignored) with the same path structure as S3:
+Results are written to `./results/` (gitignored) with the same path structure as on S3:
 
 ```
-results/<model_name>/<hardware>/<experiment>/<ISO-datetime>/
+results/<model_name>/<hardware>/<ExperimentClassName>/<ISO-datetime>/
   config.yaml     # exact config that produced this run
   results.jsonl   # one JSON line per request
   summary.json    # aggregated stats
 ```
 
-### 5. Stop the harness instance
+### 6. Stop the harness instance
 
 ```bash
-python cli.py stop
+uv run python cli.py stop
 ```
 
 ## Configuring experiments
@@ -318,11 +403,21 @@ Note that a UUID is prepended to each prompt before it is sent to the model. Thi
 
 ## Testing
 
+Run unit tests
 ```bash
-uv run pytest              # run unit tests
-uv run ruff check .        # lint
-uv run ruff format .       # format
-uv run pyright .           # type-check
+uv run pytest
+```
+Lint
+```bash
+uv run ruff check .
+```
+Format
+```bash
+uv run ruff format .
+```
+Type-check
+```bash
+uv run pyright .
 ```
 
 All tests are unit tests with mocked network I/O — no AWS credentials or running instances required.
