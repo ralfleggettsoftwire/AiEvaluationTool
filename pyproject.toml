@@ -3,7 +3,7 @@ name = "aievaluationtools"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.43.6",
     "click>=8.3.3",
@@ -66,9 +66,3 @@ indent-style = "space"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-
-[tool.pyright]
-pythonVersion = "3.12"
-typeCheckingMode = "strict"
-reportMissingImports = true
-reportMissingTypeStubs = false
