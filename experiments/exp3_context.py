@@ -14,6 +14,7 @@ class Exp3Config(BaseModel):
     prompt_files: list[str]
     max_tokens: int | None = None
     repeats_per_length: int = 3
+    request_timeout_s: float
 
 
 class Exp3Context(BaseExperiment):

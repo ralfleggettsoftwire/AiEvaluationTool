@@ -33,6 +33,7 @@ def test_build_requests_returns_single_request_config(prompt_file: Path) -> None
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
+        request_timeout_s=30.0,
     )
     exp = Exp5Soak(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -47,6 +48,7 @@ def test_build_requests_uses_prompt_content(prompt_file: Path) -> None:
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
         max_tokens=64,
+        request_timeout_s=30.0,
     )
     exp = Exp5Soak(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -65,6 +67,7 @@ async def test_run_each_user_loops_until_duration_elapsed(
         prompt_file=str(prompt_file),
         concurrency=2,
         duration_s=1,
+        request_timeout_s=30.0,
     )
     output_dir = tmp_path / "out"
     exp = Exp5Soak(config, output_dir)
@@ -91,6 +94,7 @@ async def test_run_sets_concurrency_on_runner(prompt_file: Path, tmp_path: Path)
         prompt_file=str(prompt_file),
         concurrency=7,
         duration_s=1,
+        request_timeout_s=30.0,
     )
     output_dir = tmp_path / "out"
     exp = Exp5Soak(config, output_dir)
@@ -113,6 +117,7 @@ async def test_run_accumulates_results_from_all_users(prompt_file: Path, tmp_pat
         prompt_file=str(prompt_file),
         concurrency=3,
         duration_s=1,
+        request_timeout_s=30.0,
     )
     output_dir = tmp_path / "out"
     exp = Exp5Soak(config, output_dir)
@@ -135,6 +140,7 @@ async def test_run_writes_config_before_first_request(prompt_file: Path, tmp_pat
         prompt_file=str(prompt_file),
         concurrency=1,
         duration_s=1,
+        request_timeout_s=30.0,
     )
     output_dir = tmp_path / "out"
     exp = Exp5Soak(config, output_dir)

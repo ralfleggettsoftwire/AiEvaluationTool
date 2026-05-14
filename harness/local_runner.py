@@ -88,7 +88,7 @@ async def run_from_config(config_path: Path) -> None:
     metrics_poller = MetricsPoller(endpoint) if has_metrics else None
     max_concurrency = getattr(config, "concurrency", 1)
 
-    async with LLMClient(endpoint) as client:
+    async with LLMClient(endpoint, timeout=config.request_timeout_s) as client:
         runner = Runner(client, max_concurrency, metrics_poller)
         experiment = experiment_class(config, output_dir)
         summary = await experiment.run(runner)
@@ -131,7 +131,8 @@ def _print_summary(summary: ExperimentSummary) -> None:
 
     _console.print(table)
     error_colour = "red" if summary.error_count else "green"
+    timeout_suffix = f" ({summary.timeout_error_count} timeouts)" if summary.error_count else ""
     _console.print(
         f"Requests: {summary.total_requests} total, "
-        f"[{error_colour}]{summary.error_count} errors[/{error_colour}]"
+        f"[{error_colour}]{summary.error_count} errors{timeout_suffix}[/{error_colour}]"
     )

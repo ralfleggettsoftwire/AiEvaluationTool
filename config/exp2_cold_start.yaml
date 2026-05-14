@@ -4,3 +4,4 @@ hardware: local-macbook
 prompt_file: prompts/short_1k.txt
 max_tokens: 1
 n_warmup_requests: 5
+request_timeout_s: 30

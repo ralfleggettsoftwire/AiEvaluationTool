@@ -119,6 +119,8 @@ Each experiment series has its own config schema. The provided configs in `confi
 
 `max_tokens` is optional in all configs. When omitted the model generates until it naturally stops. Set it only when you need a consistent output-length ceiling — for example in Experiment 3 to hold output length constant across prompt sizes, or in Experiment 2 where only TTFT matters. Do not set it for load or soak experiments: a low cap prevents the KV cache from filling and gives an unrepresentative throughput reading.
 
+`request_timeout_s` is required in all configs. It sets the per-request read timeout (seconds) passed to the HTTP client. The timeout governs the maximum time the client will wait for the next streamed byte — once streaming begins the timer resets with each chunk, so only the TTFT leg is realistically bounded by this value. 30 seconds is a reasonable threshold for AI-assisted coding tools; requests that exceed it are counted as `timeout_error_count` in the summary and excluded from latency statistics.
+
 ### Experiment 1 — single-user baseline
 
 Sends the same prompt repeatedly from a single user. Use this to get a clean baseline TTFT and tokens/sec before introducing concurrency.
@@ -129,6 +131,7 @@ model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt   # path to a prompt file on the harness instance
 n_requests: 20                       # number of sequential requests
+request_timeout_s: 30               # per-request read timeout in seconds
 ```
 
 ### Experiment 2 — cold-start timing
@@ -142,6 +145,7 @@ hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt
 max_tokens: 1          # only TTFT matters here; stop after the first token
 n_warmup_requests: 5
+request_timeout_s: 30
 ```
 
 ### Experiment 3 — context length sensitivity
@@ -159,6 +163,7 @@ prompt_files:
   - prompts/xlarge_128k.txt  # ~128k tokens
 max_tokens: 1024             # consistent cap across all lengths to isolate input-context effect
 repeats_per_length: 5        # requests per file
+request_timeout_s: 30
 ```
 
 ### Experiment 4 — concurrency ramp
@@ -172,6 +177,7 @@ hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt
 concurrency_levels: [1, 5, 10, 25, 50, 100]
 requests_per_user: 10
+request_timeout_s: 30
 ```
 
 - **`concurrency_levels`** — ordered list of concurrency values to test. Each entry produces one measurement step.
@@ -188,6 +194,7 @@ hardware: g4dn.xlarge
 prompt_file: prompts/short_1k.txt
 concurrency: 10
 duration_s: 300
+request_timeout_s: 30
 ```
 
 - **`concurrency`** — number of independent simulated users, each continuously sending requests for the duration of the test.
@@ -213,6 +220,7 @@ weights:
   xlarge: 0.03
 n_requests: 100
 concurrency: 10
+request_timeout_s: 30
 ```
 
 - **`n_requests`** — total number of requests to send across the entire run. Prompt type for each request is chosen independently by weighted random sampling, so the actual mix converges to the configured proportions as `n_requests` grows.
@@ -248,14 +256,15 @@ Different task types produce different output lengths, which gives more realisti
   "hardware": "g4dn.xlarge",
   "experiment": "Exp1Baseline",
   "total_requests": 20,
-  "error_count": 0,
+  "error_count": 2,
+  "timeout_error_count": 1,
   "ttft":            {"mean": 0.41, "p50": 0.39, "p95": 0.71, "p99": 0.88, "min": 0.28, "max": 0.91},
   "total_latency":   {"mean": 3.1,  "p50": 3.0,  "p95": 4.8,  "p99": 5.2,  "min": 2.1,  "max": 5.5},
   "tokens_per_sec":  {"mean": 57.0, "p50": 58.0, "p95": 42.0, "p99": 38.0, "min": 36.0, "max": 66.0}
 }
 ```
 
-Stats are computed only over **successful** requests; errored requests are counted separately in `error_count`.
+`ttft`, `total_latency`, and `tokens_per_sec` statistics are computed **only over successful requests** (those where `error` is null in `results.jsonl`). Failed requests contribute to `error_count` and, if they timed out, to `timeout_error_count`, but are excluded from all latency and throughput percentiles.
 
 ## Testing
 

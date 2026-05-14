@@ -111,6 +111,7 @@ async def test_connection_error_returns_error() -> None:
 
     assert result.error is not None
     assert "refused" in result.error
+    assert result.timed_out is False
     assert result.prompt_tokens == 0
 
 
@@ -120,14 +121,13 @@ async def test_timeout_returns_error() -> None:
     respx.get(f"{BASE_URL}/v1/models").mock(
         return_value=httpx.Response(200, json={"data": [{"id": "llama3"}]})
     )
-    respx.post(f"{BASE_URL}/v1/chat/completions").mock(
-        side_effect=httpx.TimeoutException("timed out")
-    )
+    respx.post(f"{BASE_URL}/v1/chat/completions").mock(side_effect=httpx.ReadTimeout(""))
 
     async with LLMClient(BASE_URL, timeout=1.0) as client:
         result = await client.complete(REQ)
 
-    assert result.error is not None
+    assert result.error == "ReadTimeout"
+    assert result.timed_out is True
     assert result.prompt_tokens == 0
     assert result.tokens_per_sec == 0.0
 

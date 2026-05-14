@@ -80,6 +80,7 @@ class BaseExperiment(ABC):
                     fh.write(s.model_dump_json() + "\n")
 
         error_count = sum(1 for r in results if r.error is not None)
+        timeout_error_count = sum(1 for r in results if r.timed_out)
         successful = [r for r in results if r.error is None]
 
         config_dict = self._config.model_dump(mode="json")
@@ -91,6 +92,7 @@ class BaseExperiment(ABC):
             completed_at=completed_at,
             total_requests=len(results),
             error_count=error_count,
+            timeout_error_count=timeout_error_count,
             ttft=_compute_stats([r.ttft_s for r in successful]),
             total_latency=_compute_stats([r.total_latency_s for r in successful]),
             tokens_per_sec=_compute_stats([r.tokens_per_sec for r in successful]),

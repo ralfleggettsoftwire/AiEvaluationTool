@@ -25,7 +25,10 @@ def test_build_requests_returns_n_requests(prompt_files: dict[str, Path]) -> Non
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_files={k: str(v) for k, v in prompt_files.items()},
+        weights=dict.fromkeys(prompt_files, 1.0),
         n_requests=50,
+        concurrency=10,
+        request_timeout_s=30.0,
     )
     exp = Exp6Workload(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -33,11 +36,15 @@ def test_build_requests_returns_n_requests(prompt_files: dict[str, Path]) -> Non
     assert len(requests) == 50
 
 
-def test_build_requests_default_n_requests(prompt_files: dict[str, Path]) -> None:
+def test_build_requests_n_requests_count(prompt_files: dict[str, Path]) -> None:
     config = Exp6Config(
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_files={k: str(v) for k, v in prompt_files.items()},
+        weights=dict.fromkeys(prompt_files, 1.0),
+        n_requests=100,
+        concurrency=10,
+        request_timeout_s=30.0,
     )
     exp = Exp6Workload(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -50,7 +57,10 @@ def test_build_requests_returns_request_config_objects(prompt_files: dict[str, P
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_files={k: str(v) for k, v in prompt_files.items()},
+        weights=dict.fromkeys(prompt_files, 1.0),
         n_requests=10,
+        concurrency=10,
+        request_timeout_s=30.0,
     )
     exp = Exp6Workload(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -63,8 +73,11 @@ def test_build_requests_prompts_come_from_files(prompt_files: dict[str, Path]) -
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_files={k: str(v) for k, v in prompt_files.items()},
+        weights=dict.fromkeys(prompt_files, 1.0),
         n_requests=30,
+        concurrency=10,
         max_tokens=128,
+        request_timeout_s=30.0,
     )
     exp = Exp6Workload(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -82,6 +95,8 @@ def test_build_requests_weight_distribution_approximate(prompt_files: dict[str, 
         prompt_files={k: str(v) for k, v in prompt_files.items()},
         weights={"short": 1.0, "medium": 0.0, "long": 0.0},
         n_requests=20,
+        concurrency=10,
+        request_timeout_s=30.0,
     )
     exp = Exp6Workload(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -98,6 +113,8 @@ def test_build_requests_single_file(tmp_path: Path) -> None:
         prompt_files={"only": str(p)},
         weights={"only": 1.0},
         n_requests=5,
+        concurrency=10,
+        request_timeout_s=30.0,
     )
     exp = Exp6Workload(config, Path("/tmp/unused"))
     requests = exp.build_requests()

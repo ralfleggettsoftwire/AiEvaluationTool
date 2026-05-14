@@ -20,6 +20,7 @@ def test_build_requests_returns_n_requests(prompt_file: Path) -> None:
         prompt_file=str(prompt_file),
         n_requests=7,
         max_tokens=128,
+        request_timeout_s=30.0,
     )
     exp = Exp1Baseline(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -34,6 +35,7 @@ def test_build_requests_all_use_prompt_file_content(prompt_file: Path) -> None:
         prompt_file=str(prompt_file),
         n_requests=3,
         max_tokens=64,
+        request_timeout_s=30.0,
     )
     exp = Exp1Baseline(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -43,11 +45,13 @@ def test_build_requests_all_use_prompt_file_content(prompt_file: Path) -> None:
         assert req.max_tokens == 64
 
 
-def test_build_requests_default_n_requests(prompt_file: Path) -> None:
+def test_build_requests_n_requests_respected(prompt_file: Path) -> None:
     config = Exp1Config(
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
+        n_requests=10,
+        request_timeout_s=30.0,
     )
     exp = Exp1Baseline(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -61,6 +65,7 @@ def test_build_requests_returns_request_config_objects(prompt_file: Path) -> Non
         hardware="g4dn.xlarge",
         prompt_file=str(prompt_file),
         n_requests=2,
+        request_timeout_s=30.0,
     )
     exp = Exp1Baseline(config, Path("/tmp/unused"))
     requests = exp.build_requests()

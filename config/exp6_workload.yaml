@@ -13,3 +13,4 @@ weights:
   xlarge: 0.03
 n_requests: 100
 concurrency: 10
+request_timeout_s: 30

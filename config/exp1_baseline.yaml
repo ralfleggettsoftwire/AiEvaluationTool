@@ -3,3 +3,4 @@ model_name: qwen2.5-coder:7b
 hardware: local-macbook
 prompt_file: prompts/short_1k.txt
 n_requests: 20
+request_timeout_s: 30

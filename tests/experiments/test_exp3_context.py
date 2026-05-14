@@ -40,6 +40,7 @@ def test_build_requests_repeats_each_file(prompt_files: list[Path]) -> None:
         hardware="g4dn.xlarge",
         prompt_files=[str(p) for p in prompt_files],
         repeats_per_length=3,
+        request_timeout_s=30.0,
     )
     exp = Exp3Context(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -54,6 +55,7 @@ def test_build_requests_total_count(prompt_files: list[Path]) -> None:
         prompt_files=[str(p) for p in prompt_files],
         repeats_per_length=5,
         max_tokens=64,
+        request_timeout_s=30.0,
     )
     exp = Exp3Context(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -68,6 +70,7 @@ def test_build_requests_prompt_content_matches_files(prompt_files: list[Path]) -
         prompt_files=[str(p) for p in prompt_files],
         repeats_per_length=2,
         max_tokens=64,
+        request_timeout_s=30.0,
     )
     exp = Exp3Context(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -87,6 +90,7 @@ def test_build_requests_default_repeats(tmp_path: Path) -> None:
         model_name="llama3",
         hardware="g4dn.xlarge",
         prompt_files=[str(p)],
+        request_timeout_s=30.0,
     )
     exp = Exp3Context(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -100,6 +104,7 @@ def test_build_requests_returns_request_config_objects(prompt_files: list[Path])
         hardware="g4dn.xlarge",
         prompt_files=[str(p) for p in prompt_files],
         repeats_per_length=1,
+        request_timeout_s=30.0,
     )
     exp = Exp3Context(config, Path("/tmp/unused"))
     requests = exp.build_requests()
@@ -119,6 +124,7 @@ async def test_run_creates_per_prompt_subdirectories(
         hardware="g4dn.xlarge",
         prompt_files=[str(p) for p in prompt_files],
         repeats_per_length=1,
+        request_timeout_s=30.0,
     )
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir)
@@ -142,6 +148,7 @@ async def test_run_each_subdir_has_results_and_summary(
         hardware="g4dn.xlarge",
         prompt_files=[str(p) for p in prompt_files],
         repeats_per_length=2,
+        request_timeout_s=30.0,
     )
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir)
@@ -167,6 +174,7 @@ async def test_run_top_level_summary_aggregates_all_results(
         hardware="g4dn.xlarge",
         prompt_files=[str(p) for p in prompt_files],
         repeats_per_length=2,
+        request_timeout_s=30.0,
     )
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir)
@@ -189,6 +197,7 @@ async def test_run_config_yaml_written_before_first_request(
         hardware="g4dn.xlarge",
         prompt_files=[str(p) for p in prompt_files],
         repeats_per_length=1,
+        request_timeout_s=30.0,
     )
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir)

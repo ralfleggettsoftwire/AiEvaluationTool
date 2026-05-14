@@ -15,6 +15,7 @@ class Exp4Config(BaseModel):
     max_tokens: int | None = None
     concurrency_levels: list[int] = [1, 5, 10, 25, 50, 100]
     requests_per_user: int = 10
+    request_timeout_s: float
 
 
 class Exp4Concurrency(BaseExperiment):

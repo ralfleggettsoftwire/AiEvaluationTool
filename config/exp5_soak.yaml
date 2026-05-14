@@ -4,3 +4,4 @@ hardware: local-macbook
 prompt_file: prompts/short_1k.txt
 concurrency: 10
 duration_s: 300
+request_timeout_s: 30

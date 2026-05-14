@@ -17,6 +17,7 @@ class Exp5Config(BaseModel):
     max_tokens: int | None = None
     concurrency: int = 10
     duration_s: int = 300
+    request_timeout_s: float
 
 
 class Exp5Soak(BaseExperiment):

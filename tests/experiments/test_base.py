@@ -11,7 +11,13 @@ from experiments.base import BaseExperiment
 from models import RequestConfig, Result
 
 
-def _make_result(ttft: float, latency: float, tps: float, error: str | None = None) -> Result:
+def _make_result(
+    ttft: float,
+    latency: float,
+    tps: float,
+    error: str | None = None,
+    timed_out: bool = False,
+) -> Result:
     return Result(
         timestamp=datetime.now(tz=UTC),
         prompt_tokens=10,
@@ -20,6 +26,7 @@ def _make_result(ttft: float, latency: float, tps: float, error: str | None = No
         total_latency_s=latency,
         tokens_per_sec=tps,
         error=error,
+        timed_out=timed_out,
     )
 
 
@@ -113,7 +120,7 @@ async def test_summary_json_correct_percentiles(output_dir: Path) -> None:
 async def test_error_results_counted_in_summary(output_dir: Path) -> None:
     results = [
         _make_result(0.1, 1.0, 10.0),
-        _make_result(0.0, 0.0, 0.0, error="timeout"),
+        _make_result(0.0, 0.0, 0.0, error="ReadTimeout", timed_out=True),
         _make_result(0.2, 2.0, 5.0),
         _make_result(0.0, 0.0, 0.0, error="OOM"),
     ]
@@ -126,6 +133,7 @@ async def test_error_results_counted_in_summary(output_dir: Path) -> None:
     summary = await exp.run(mock_runner)
 
     assert summary.error_count == 2
+    assert summary.timeout_error_count == 1
     assert summary.total_requests == 4
 
 

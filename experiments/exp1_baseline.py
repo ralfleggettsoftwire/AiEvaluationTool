@@ -12,6 +12,7 @@ class Exp1Config(BaseModel):
     prompt_file: str
     max_tokens: int | None = None
     n_requests: int
+    request_timeout_s: float
 
 
 class Exp1Baseline(BaseExperiment):

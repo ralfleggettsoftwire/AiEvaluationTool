@@ -73,6 +73,18 @@ class LLMClient:
                         prompt_tokens = int(usage.get("prompt_tokens", 0))
                         completion_tokens = int(usage.get("completion_tokens", 0))
 
+        except httpx.TimeoutException:
+            total_latency_s = time.perf_counter() - start
+            return Result(
+                timestamp=timestamp,
+                prompt_tokens=0,
+                completion_tokens=0,
+                ttft_s=0.0,
+                total_latency_s=total_latency_s,
+                tokens_per_sec=0.0,
+                error="ReadTimeout",
+                timed_out=True,
+            )
         except Exception as exc:
             total_latency_s = time.perf_counter() - start
             return Result(
@@ -82,7 +94,7 @@ class LLMClient:
                 ttft_s=0.0,
                 total_latency_s=total_latency_s,
                 tokens_per_sec=0.0,
-                error=str(exc),
+                error=str(exc) or type(exc).__name__,
             )
 
         total_latency_s = time.perf_counter() - start

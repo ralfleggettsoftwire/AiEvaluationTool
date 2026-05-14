@@ -15,6 +15,7 @@ class Exp6Config(BaseModel):
     max_tokens: int | None = None
     n_requests: int
     concurrency: int
+    request_timeout_s: float
 
 
 class Exp6Workload(BaseExperiment):

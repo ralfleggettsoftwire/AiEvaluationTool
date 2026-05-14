@@ -18,6 +18,7 @@ class Result(BaseModel):
     total_latency_s: float
     tokens_per_sec: float
     error: str | None = None
+    timed_out: bool = False
 
 
 class SummaryStats(BaseModel):
@@ -50,6 +51,7 @@ class ExperimentSummary(BaseModel):
     completed_at: datetime
     total_requests: int
     error_count: int
+    timeout_error_count: int
     ttft: SummaryStats
     total_latency: SummaryStats
     tokens_per_sec: SummaryStats

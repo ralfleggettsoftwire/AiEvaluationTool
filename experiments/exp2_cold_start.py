@@ -12,6 +12,7 @@ class Exp2Config(BaseModel):
     prompt_file: str
     max_tokens: int | None = None
     n_warmup_requests: int
+    request_timeout_s: float
 
 
 class Exp2ColdStart(BaseExperiment):
