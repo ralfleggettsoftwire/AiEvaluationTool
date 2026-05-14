@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import boto3
 from botocore.exceptions import ClientError
@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 class EC2Manager:
     def __init__(self, instance_id: str, region: str = "eu-west-1") -> None:
         self._instance_id = instance_id
-        self._client: Any = boto3.client("ec2", region_name=region)
+        self._client: Any = boto3.client("ec2", region_name=region)  # type: ignore[reportUnknownMemberType]
 
     def _describe(self) -> dict[str, Any]:
         try:
@@ -17,7 +17,7 @@ class EC2Manager:
                 InstanceIds=[self._instance_id]
             )
         except ClientError as exc:
-            error_code: str = exc.response["Error"]["Code"]
+            error_code = cast("str", exc.response["Error"]["Code"])
             if error_code == "InvalidInstanceID.NotFound":
                 raise RuntimeError(f"Instance {self._instance_id!r} not found") from exc
             raise
@@ -31,7 +31,7 @@ class EC2Manager:
         try:
             self._client.start_instances(InstanceIds=[self._instance_id])
         except ClientError as exc:
-            error_code: str = exc.response["Error"]["Code"]
+            error_code = cast("str", exc.response["Error"]["Code"])
             if error_code == "InvalidInstanceID.NotFound":
                 raise RuntimeError(f"Instance {self._instance_id!r} not found") from exc
             raise
@@ -46,7 +46,7 @@ class EC2Manager:
         try:
             self._client.stop_instances(InstanceIds=[self._instance_id])
         except ClientError as exc:
-            error_code2: str = exc.response["Error"]["Code"]
+            error_code2 = cast("str", exc.response["Error"]["Code"])
             if error_code2 == "InvalidInstanceID.NotFound":
                 raise RuntimeError(f"Instance {self._instance_id!r} not found") from exc
             raise

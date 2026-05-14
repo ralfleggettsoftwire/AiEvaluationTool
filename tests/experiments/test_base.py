@@ -30,14 +30,6 @@ def _make_result(
     )
 
 
-class _SimpleConfig:
-    model_name: str = "test-model"
-    hardware: str = "g4dn.xlarge"
-
-    def model_dump(self, mode: str = "python") -> dict:  # type: ignore[override]
-        return {"model_name": self.model_name, "hardware": self.hardware}
-
-
 class _SimpleExperiment(BaseExperiment):
     def __init__(self, output_dir: Path, results_to_return: list[Result]) -> None:
 

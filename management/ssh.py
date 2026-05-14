@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import shlex
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fabric import Connection  # type: ignore[import-untyped]
 
@@ -15,7 +15,7 @@ class SSHManager:
         self._user = user
         self._key_path = key_path
 
-    def _connect(self) -> Connection:
+    def _connect(self) -> Any:
         return Connection(
             host=self._host,
             user=self._user,

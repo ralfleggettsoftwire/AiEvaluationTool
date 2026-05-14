@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class S3Manager:
     def __init__(self, bucket: str, region: str = "eu-west-1") -> None:
         self._bucket = bucket
-        self._client: Any = boto3.client("s3", region_name=region)
+        self._client: Any = boto3.client("s3", region_name=region)  # type: ignore[reportUnknownMemberType]
 
     def upload_directory(self, local_path: Path, s3_prefix: str) -> None:
         files = [p for p in local_path.rglob("*") if p.is_file()]

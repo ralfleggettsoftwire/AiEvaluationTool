@@ -43,7 +43,7 @@ async def _probe_metrics(base_url: str) -> bool:
     try:
         async with httpx.AsyncClient(timeout=_METRICS_PROBE_TIMEOUT) as client:
             resp = await client.get(f"{base_url}/metrics")
-            return resp.status_code == httpx.codes.OK and "# HELP" in resp.text
+            return resp.is_success and "# HELP" in resp.text
     except Exception:
         return False
 

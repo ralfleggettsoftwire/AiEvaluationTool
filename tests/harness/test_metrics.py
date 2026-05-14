@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 import respx
+from pytest import approx  # type: ignore[reportUnknownVariableType]
 
 from harness.metrics import MetricsPoller, compute_gpu_stats
 from models import GpuSample
@@ -27,8 +28,8 @@ async def test_happy_path_extracts_expected_values() -> None:
     async with MetricsPoller(BASE_URL) as poller:
         metrics = await poller.poll()
 
-    assert metrics["vllm:gpu_cache_usage_perc"] == pytest.approx(0.42)
-    assert metrics["vllm:num_requests_running"] == pytest.approx(7.0)
+    assert metrics["vllm:gpu_cache_usage_perc"] == approx(0.42)
+    assert metrics["vllm:num_requests_running"] == approx(7.0)
 
 
 @respx.mock
@@ -75,7 +76,7 @@ async def test_only_first_occurrence_of_metric_used() -> None:
     async with MetricsPoller(BASE_URL) as poller:
         metrics = await poller.poll()
 
-    assert metrics["vllm:gpu_cache_usage_perc"] == pytest.approx(0.10)
+    assert metrics["vllm:gpu_cache_usage_perc"] == approx(0.10)
 
 
 @respx.mock
@@ -88,7 +89,7 @@ async def test_malformed_value_line_skipped() -> None:
         metrics = await poller.poll()
 
     assert "vllm:gpu_cache_usage_perc" not in metrics
-    assert metrics["vllm:num_requests_running"] == pytest.approx(5.0)
+    assert metrics["vllm:num_requests_running"] == approx(5.0)
 
 
 # --- Sample accumulation and checkpoint tests ---
@@ -104,8 +105,8 @@ async def test_successful_poll_appends_sample_with_correct_values() -> None:
         samples = poller.get_all_samples()
 
     assert len(samples) == 1
-    assert samples[0].gpu_cache_usage_perc == pytest.approx(0.42)
-    assert samples[0].num_requests_running == pytest.approx(7.0)
+    assert samples[0].gpu_cache_usage_perc == approx(0.42)
+    assert samples[0].num_requests_running == approx(7.0)
 
 
 @respx.mock
@@ -198,9 +199,9 @@ def test_compute_gpu_stats_aggregates_values_correctly() -> None:
     stats = compute_gpu_stats(samples)
 
     assert stats.gpu_cache_usage_perc is not None
-    assert stats.gpu_cache_usage_perc.mean == pytest.approx(0.3)
+    assert stats.gpu_cache_usage_perc.mean == approx(0.3)
     assert stats.num_requests_running is not None
-    assert stats.num_requests_running.mean == pytest.approx(4.0)
+    assert stats.num_requests_running.mean == approx(4.0)
     assert stats.num_requests_waiting is None
 
 
@@ -216,6 +217,6 @@ def test_compute_gpu_stats_handles_partial_none_fields() -> None:
     stats = compute_gpu_stats(samples)
 
     assert stats.gpu_cache_usage_perc is not None
-    assert stats.gpu_cache_usage_perc.mean == pytest.approx(0.5)
+    assert stats.gpu_cache_usage_perc.mean == approx(0.5)
     assert stats.num_requests_running is not None
-    assert stats.num_requests_running.mean == pytest.approx(3.0)
+    assert stats.num_requests_running.mean == approx(3.0)

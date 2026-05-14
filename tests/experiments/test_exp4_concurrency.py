@@ -88,11 +88,13 @@ async def test_run_calls_runner_once_per_concurrency_level(
     output_dir = tmp_path / "out"
     exp = Exp4Concurrency(config, output_dir)
 
+    def _side_effect_1(reqs: list[RequestConfig]) -> list[Result]:
+        return [_make_result() for _ in reqs]
+
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
-    # return as many results as requests passed in
-    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
+    mock_runner.run.side_effect = _side_effect_1
 
     summary = await exp.run(mock_runner)
 
@@ -145,10 +147,13 @@ async def test_run_sets_concurrency_per_level(prompt_file: Path, tmp_path: Path)
     output_dir = tmp_path / "out"
     exp = Exp4Concurrency(config, output_dir)
 
+    def _side_effect_2(reqs: list[RequestConfig]) -> list[Result]:
+        return [_make_result() for _ in reqs]
+
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
-    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
+    mock_runner.run.side_effect = _side_effect_2
 
     await exp.run(mock_runner)
 

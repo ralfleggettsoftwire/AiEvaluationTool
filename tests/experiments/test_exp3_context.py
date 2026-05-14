@@ -22,7 +22,7 @@ def _make_result() -> Result:
 
 @pytest.fixture
 def prompt_files(tmp_path: Path) -> list[Path]:
-    files = []
+    files: list[Path] = []
     for name, content in [
         ("1k.txt", "short prompt"),
         ("4k.txt", "medium prompt"),
@@ -129,9 +129,12 @@ async def test_run_creates_per_prompt_subdirectories(
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir)
 
+    def _side_effect_1(reqs: list[RequestConfig]) -> list[Result]:
+        return [_make_result() for _ in reqs]
+
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
-    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
+    mock_runner.run.side_effect = _side_effect_1
 
     await exp.run(mock_runner)
 
@@ -153,9 +156,12 @@ async def test_run_each_subdir_has_results_and_summary(
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir)
 
+    def _side_effect_2(reqs: list[RequestConfig]) -> list[Result]:
+        return [_make_result() for _ in reqs]
+
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
-    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
+    mock_runner.run.side_effect = _side_effect_2
 
     await exp.run(mock_runner)
 
@@ -179,9 +185,12 @@ async def test_run_top_level_summary_aggregates_all_results(
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir)
 
+    def _side_effect_3(reqs: list[RequestConfig]) -> list[Result]:
+        return [_make_result() for _ in reqs]
+
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
-    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
+    mock_runner.run.side_effect = _side_effect_3
 
     summary = await exp.run(mock_runner)
 

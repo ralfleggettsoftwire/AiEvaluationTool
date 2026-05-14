@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -8,14 +9,14 @@ from harness.client import LLMClient
 from models import RequestConfig
 
 
-def _sse_lines(*chunks: dict) -> bytes:
+def _sse_lines(*chunks: dict[str, Any]) -> bytes:
     lines = [f"data: {json.dumps(chunk)}\n\n" for chunk in chunks]
     lines.append("data: [DONE]\n\n")
     return "".join(lines).encode()
 
 
-def _make_chunk(content: str, usage: dict | None = None) -> dict:
-    chunk: dict = {
+def _make_chunk(content: str, usage: dict[str, Any] | None = None) -> dict[str, Any]:
+    chunk: dict[str, Any] = {
         "choices": [{"delta": {"content": content}}],
     }
     if usage is not None:
@@ -167,5 +168,5 @@ async def test_model_fetch_failure_uses_default() -> None:
         result = await client.complete(REQ)
 
     assert result.error is None
-    sent_body = json.loads(post_route.calls[0].request.content)
+    sent_body = json.loads(post_route.calls[0].request.content)  # type: ignore[reportUnknownMemberType,reportUnknownArgumentType]
     assert sent_body["model"] == "default"
