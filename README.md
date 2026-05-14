@@ -125,26 +125,17 @@ Each experiment series has its own config schema. The provided configs in `confi
 
 Sends the same prompt repeatedly from a single user. Use this to get a clean baseline TTFT and tokens/sec before introducing concurrency.
 
-Two variants:
-
 ```yaml
-# config/exp1_baseline_small.yaml  — chat / coding model baseline
+experiment_type: exp1_baseline
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/small_1k.txt
 n_requests: 20
+max_tokens: 1024        # optional
 request_timeout_s: 30
 ```
 
-```yaml
-# config/exp1_baseline_tiny.yaml  — completion model baseline
-model_name: llama3-8b
-hardware: g4dn.xlarge
-prompt_file: prompts/tiny_150.txt
-max_tokens: 64
-n_requests: 20
-request_timeout_s: 30
-```
+Pre-built configs: `config/exp1_baseline_small.yaml`, `config/exp1_baseline_tiny.yaml`.
 
 ### Experiment 2 — cold-start timing
 
@@ -165,45 +156,40 @@ request_timeout_s: 30
 Tests how TTFT and throughput degrade as prompt length grows. Supply one file per context length. `max_tokens` is intentionally omitted: each prompt generates its natural response length, which is more representative and avoids artificially truncating the larger prompts (the `medium_4k` task asks for a full rewritten file that comfortably exceeds 1 000 tokens).
 
 ```yaml
-# config/exp3_context_full.yaml
+experiment_type: exp3_context
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_files:
-  - prompts/tiny_150.txt     # ~150 tokens
-  - prompts/small_1k.txt     # ~1k tokens
-  - prompts/medium_4k.txt    # ~4k tokens
-  - prompts/large_32k.txt    # ~32k tokens
-  - prompts/xlarge_128k.txt  # ~128k tokens
+  - prompts/tiny_150.txt
+  - prompts/small_1k.txt
+  # add further files to extend the curve
+max_tokens: 1024        # optional — omit to let each prompt complete naturally
 repeats_per_length: 5
 request_timeout_s: 30
 ```
+
+Pre-built config: `config/exp3_context_full.yaml` (all five prompt tiers).
 
 ### Experiment 4 — concurrency ramp
 
 Shows where throughput saturates and error rates increase by stepping through a series of concurrency levels in order. At each level the runner's semaphore is set to that value, then `level × requests_per_user` requests are submitted to the asyncio event loop all at once — enough tasks to keep all concurrency slots busy. The semaphore caps how many can be executing simultaneously. The experiment waits for all requests at a level to complete before advancing to the next level, giving each step a clean measurement window. Total requests sent = `sum(level × requests_per_user for level in concurrency_levels)`.
 
-Two variants targeting the two workload types:
-
 ```yaml
-# config/exp4_concurrency_small.yaml  — coding task saturation (generation-throughput limited)
+experiment_type: exp4_concurrency
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/small_1k.txt
-concurrency_levels: [1, 5, 10, 25, 50, 100]
+max_tokens: 1024        # optional
+concurrency_levels:
+  - 1
+  - 5
+  - 10
+  - 25
 requests_per_user: 10
 request_timeout_s: 30
 ```
 
-```yaml
-# config/exp4_concurrency_tiny.yaml  — autocomplete saturation (prefill-queue limited)
-model_name: llama3-8b
-hardware: g4dn.xlarge
-prompt_file: prompts/tiny_150.txt
-max_tokens: 64
-concurrency_levels: [1, 5, 10, 25, 50, 100]
-requests_per_user: 10
-request_timeout_s: 30
-```
+Pre-built configs: `config/exp4_concurrency_small.yaml`, `config/exp4_concurrency_tiny.yaml`.
 
 - **`concurrency_levels`** — ordered list of concurrency values to test. Each entry produces one measurement step.
 - **`requests_per_user`** — how many requests each simulated user sends at each step. The total tasks dispatched per step is `level × requests_per_user`, ensuring the concurrency slots are always the binding constraint rather than the task count.
@@ -212,28 +198,20 @@ request_timeout_s: 30
 
 Useful for detecting memory leaks, KV-cache exhaustion, or throughput degradation over time. The experiment spawns `concurrency` independent user coroutines, each of which issues a request, waits for the response, then immediately issues the next — modelling users who act independently of one another. All coroutines run until the wall-clock deadline (`duration_s` seconds from start) is reached; in-flight requests at the deadline complete normally before the experiment stops.
 
-Two variants. For `exp5_soak_tiny`, set `concurrency` to roughly 50% of the saturation level identified in `exp4_concurrency_tiny` — enough to sustain meaningful load without pushing into the error-rate cliff.
+For the completion-model variant, set `concurrency` to roughly 50% of the saturation level identified in `exp4_concurrency_tiny` — enough to sustain meaningful load without pushing into the error-rate cliff.
 
 ```yaml
-# config/exp5_soak_small.yaml  — chat / coding model stability
+experiment_type: exp5_soak
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_file: prompts/small_1k.txt
+max_tokens: 1024        # optional
 concurrency: 10
 duration_s: 300
 request_timeout_s: 30
 ```
 
-```yaml
-# config/exp5_soak_tiny.yaml  — completion model stability
-model_name: llama3-8b
-hardware: g4dn.xlarge
-prompt_file: prompts/tiny_150.txt
-max_tokens: 64
-concurrency: 50             # update from exp4_concurrency_tiny results
-duration_s: 300
-request_timeout_s: 30
-```
+Pre-built configs: `config/exp5_soak_small.yaml`, `config/exp5_soak_tiny.yaml`.
 
 - **`concurrency`** — number of independent simulated users, each continuously sending requests for the duration of the test.
 - **`duration_s`** — wall-clock seconds to sustain load. Each user checks the deadline before issuing its next request, so the experiment stops cleanly without aborting in-flight requests.
@@ -242,63 +220,23 @@ request_timeout_s: 30
 
 Approximates a realistic developer request distribution. Before any requests are sent, `n_requests` prompts are sampled from `prompt_files` using `random.choices` weighted by `weights` — producing a randomised but statistically predictable distribution. All requests are then submitted to the asyncio event loop at once, with the `concurrency` semaphore controlling how many are in-flight simultaneously.
 
-Three variants covering the three deployment models:
-
 ```yaml
-# config/exp6_workload_chat.yaml  — dedicated chat / coding model; no tiny prompt
+experiment_type: exp6_workload
 model_name: llama3-8b
 hardware: g4dn.xlarge
 prompt_files:
   small: prompts/small_1k.txt
   medium: prompts/medium_4k.txt
-  large: prompts/large_32k.txt
-  xlarge: prompts/xlarge_128k.txt
 weights:
-  small: 0.50
-  medium: 0.35
-  large: 0.12
-  xlarge: 0.03
+  small: 0.70
+  medium: 0.30
+max_tokens: 1024        # optional
 n_requests: 100
 concurrency: 10
 request_timeout_s: 30
 ```
 
-```yaml
-# config/exp6_workload_completion.yaml  — dedicated completion model; short cap matches production
-model_name: llama3-8b
-hardware: g4dn.xlarge
-prompt_files:
-  tiny: prompts/tiny_150.txt
-  small: prompts/small_1k.txt
-weights:
-  tiny: 0.80
-  small: 0.20
-max_tokens: 64
-n_requests: 200
-concurrency: 50
-request_timeout_s: 30
-```
-
-```yaml
-# config/exp6_workload_unified.yaml  — single model serving all task types
-model_name: llama3-8b
-hardware: g4dn.xlarge
-prompt_files:
-  tiny: prompts/tiny_150.txt
-  small: prompts/small_1k.txt
-  medium: prompts/medium_4k.txt
-  large: prompts/large_32k.txt
-  xlarge: prompts/xlarge_128k.txt
-weights:
-  tiny: 0.45
-  small: 0.30
-  medium: 0.17
-  large: 0.06
-  xlarge: 0.02
-n_requests: 100
-concurrency: 10
-request_timeout_s: 30
-```
+Pre-built configs: `config/exp6_workload_chat.yaml`, `config/exp6_workload_completion.yaml`, `config/exp6_workload_unified.yaml`.
 
 - **`n_requests`** — total number of requests to send across the entire run. Prompt type for each request is chosen independently by weighted random sampling, so the actual mix converges to the configured proportions as `n_requests` grows.
 - **`concurrency`** — maximum number of requests in-flight at the same time.
