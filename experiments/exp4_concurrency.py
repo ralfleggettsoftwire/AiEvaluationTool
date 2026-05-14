@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel
 
 from experiments.base import BaseExperiment
@@ -36,12 +35,7 @@ class Exp4Concurrency(BaseExperiment):
 
     async def run(self, runner: Runner) -> ExperimentSummary:
         self._output_dir.mkdir(parents=True, exist_ok=True)
-
-        config_path = self._output_dir / "config.yaml"
-        config_path.write_text(
-            yaml.dump(self._exp_config.model_dump(mode="json"), default_flow_style=False),
-            encoding="utf-8",
-        )
+        self._write_config()
 
         poller = runner.metrics_poller
         prompt = Path(self._exp_config.prompt_file).read_text(encoding="utf-8")
@@ -74,5 +68,5 @@ class Exp4Concurrency(BaseExperiment):
             all_results,
             started_at,
             completed_at,
-            gpu_samples=poller.get_samples() if poller else None,
+            gpu_samples=poller.get_all_samples() if poller else None,
         )

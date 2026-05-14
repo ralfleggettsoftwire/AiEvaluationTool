@@ -1,7 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-import yaml
 from pydantic import BaseModel
 
 from experiments.base import BaseExperiment
@@ -14,7 +13,7 @@ class Exp3Config(BaseModel):
     hardware: str
     prompt_files: list[str]
     max_tokens: int | None = None
-    repeats_per_length: int
+    repeats_per_length: int = 3
 
 
 class Exp3Context(BaseExperiment):
@@ -34,18 +33,13 @@ class Exp3Context(BaseExperiment):
 
     async def run(self, runner: Runner) -> ExperimentSummary:
         self._output_dir.mkdir(parents=True, exist_ok=True)
-
-        config_path = self._output_dir / "config.yaml"
-        config_path.write_text(
-            yaml.dump(self._exp_config.model_dump(mode="json"), default_flow_style=False),
-            encoding="utf-8",
-        )
+        self._write_config()
 
         poller = runner.metrics_poller
         all_results: list[Result] = []
         started_at = datetime.now(tz=UTC)
 
-        for prompt_file in self._exp_config.prompt_files:
+        for i, prompt_file in enumerate(self._exp_config.prompt_files):
             prompt = Path(prompt_file).read_text(encoding="utf-8")
             level_requests = [
                 RequestConfig(prompt=prompt, max_tokens=self._exp_config.max_tokens)
@@ -56,7 +50,7 @@ class Exp3Context(BaseExperiment):
             level_completed_at = datetime.now(tz=UTC)
             level_samples = poller.checkpoint() if poller else None
 
-            subdir = self._output_dir / Path(prompt_file).stem
+            subdir = self._output_dir / f"{i:02d}_{Path(prompt_file).stem}"
             self._finalise(
                 level_results,
                 level_started_at,
@@ -71,5 +65,5 @@ class Exp3Context(BaseExperiment):
             all_results,
             started_at,
             completed_at,
-            gpu_samples=poller.get_samples() if poller else None,
+            gpu_samples=poller.get_all_samples() if poller else None,
         )

@@ -1,9 +1,23 @@
+from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
 from experiments.exp3_context import Exp3Config, Exp3Context
-from models import RequestConfig
+from models import RequestConfig, Result
+
+
+def _make_result() -> Result:
+    return Result(
+        timestamp=datetime.now(tz=UTC),
+        prompt_tokens=10,
+        completion_tokens=20,
+        ttft_s=0.1,
+        total_latency_s=1.0,
+        tokens_per_sec=10.0,
+        error=None,
+    )
 
 
 @pytest.fixture
@@ -91,3 +105,104 @@ def test_build_requests_returns_request_config_objects(prompt_files: list[Path])
     requests = exp.build_requests()
 
     assert all(isinstance(r, RequestConfig) for r in requests)
+
+
+# --- run() tests ---
+
+
+@pytest.mark.asyncio
+async def test_run_creates_per_prompt_subdirectories(
+    prompt_files: list[Path], tmp_path: Path
+) -> None:
+    config = Exp3Config(
+        model_name="llama3",
+        hardware="g4dn.xlarge",
+        prompt_files=[str(p) for p in prompt_files],
+        repeats_per_length=1,
+    )
+    output_dir = tmp_path / "out"
+    exp = Exp3Context(config, output_dir)
+
+    mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
+    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
+
+    await exp.run(mock_runner)
+
+    subdirs = sorted(d.name for d in output_dir.iterdir() if d.is_dir())
+    assert subdirs == ["00_1k", "01_4k", "02_16k"]
+
+
+@pytest.mark.asyncio
+async def test_run_each_subdir_has_results_and_summary(
+    prompt_files: list[Path], tmp_path: Path
+) -> None:
+    config = Exp3Config(
+        model_name="llama3",
+        hardware="g4dn.xlarge",
+        prompt_files=[str(p) for p in prompt_files],
+        repeats_per_length=2,
+    )
+    output_dir = tmp_path / "out"
+    exp = Exp3Context(config, output_dir)
+
+    mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
+    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
+
+    await exp.run(mock_runner)
+
+    for subdir in output_dir.iterdir():
+        if subdir.is_dir():
+            assert (subdir / "results.jsonl").exists(), f"missing results.jsonl in {subdir.name}"
+            assert (subdir / "summary.json").exists(), f"missing summary.json in {subdir.name}"
+
+
+@pytest.mark.asyncio
+async def test_run_top_level_summary_aggregates_all_results(
+    prompt_files: list[Path], tmp_path: Path
+) -> None:
+    config = Exp3Config(
+        model_name="llama3",
+        hardware="g4dn.xlarge",
+        prompt_files=[str(p) for p in prompt_files],
+        repeats_per_length=2,
+    )
+    output_dir = tmp_path / "out"
+    exp = Exp3Context(config, output_dir)
+
+    mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
+    mock_runner.run.side_effect = lambda reqs: [_make_result() for _ in reqs]
+
+    summary = await exp.run(mock_runner)
+
+    assert summary.total_requests == len(prompt_files) * 2
+
+
+@pytest.mark.asyncio
+async def test_run_config_yaml_written_before_first_request(
+    prompt_files: list[Path], tmp_path: Path
+) -> None:
+    config = Exp3Config(
+        model_name="llama3",
+        hardware="g4dn.xlarge",
+        prompt_files=[str(p) for p in prompt_files],
+        repeats_per_length=1,
+    )
+    output_dir = tmp_path / "out"
+    exp = Exp3Context(config, output_dir)
+
+    config_written: list[bool] = []
+
+    async def _run(reqs: list[RequestConfig]) -> list[Result]:
+        config_written.append((output_dir / "config.yaml").exists())
+        return [_make_result() for _ in reqs]
+
+    mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
+    mock_runner.run.side_effect = _run
+
+    await exp.run(mock_runner)
+
+    assert config_written[0] is True

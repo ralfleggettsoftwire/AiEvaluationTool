@@ -70,6 +70,7 @@ async def test_run_each_user_loops_until_duration_elapsed(
     exp = Exp5Soak(config, output_dir)
 
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
     mock_runner.run.return_value = [_make_result()]
 
@@ -95,6 +96,7 @@ async def test_run_sets_concurrency_on_runner(prompt_file: Path, tmp_path: Path)
     exp = Exp5Soak(config, output_dir)
 
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
     mock_runner.run.return_value = [_make_result()]
 
@@ -116,6 +118,7 @@ async def test_run_accumulates_results_from_all_users(prompt_file: Path, tmp_pat
     exp = Exp5Soak(config, output_dir)
 
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
     mock_runner.run.return_value = [_make_result()]
 
@@ -143,6 +146,7 @@ async def test_run_writes_config_before_first_request(prompt_file: Path, tmp_pat
         return [_make_result()]
 
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
     mock_runner.run.side_effect = _run
 

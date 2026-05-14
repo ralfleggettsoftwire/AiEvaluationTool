@@ -34,14 +34,16 @@ class BaseExperiment(ABC):
     @abstractmethod
     def build_requests(self) -> list[RequestConfig]: ...
 
-    async def run(self, runner: Runner) -> ExperimentSummary:
-        self._output_dir.mkdir(parents=True, exist_ok=True)
-
+    def _write_config(self) -> None:
         config_path = self._output_dir / "config.yaml"
         config_path.write_text(
             yaml.dump(self._config.model_dump(mode="json"), default_flow_style=False),
             encoding="utf-8",
         )
+
+    async def run(self, runner: Runner) -> ExperimentSummary:
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        self._write_config()
 
         started_at = datetime.now(tz=UTC)
         results = await runner.run(self.build_requests())
@@ -52,7 +54,7 @@ class BaseExperiment(ABC):
             results,
             started_at,
             completed_at,
-            gpu_samples=poller.get_samples() if poller else None,
+            gpu_samples=poller.get_all_samples() if poller else None,
         )
 
     def _finalise(
@@ -92,7 +94,7 @@ class BaseExperiment(ABC):
             ttft=_compute_stats([r.ttft_s for r in successful]),
             total_latency=_compute_stats([r.total_latency_s for r in successful]),
             tokens_per_sec=_compute_stats([r.tokens_per_sec for r in successful]),
-            gpu_metrics=compute_gpu_stats(gpu_samples) if gpu_samples else None,
+            gpu_metrics=compute_gpu_stats(gpu_samples) if gpu_samples is not None else None,
         )
 
         summary_path = resolved_dir / "summary.json"

@@ -60,6 +60,7 @@ async def test_config_yaml_written_before_runner_run(output_dir: Path) -> None:
         return results
 
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.run.side_effect = _run
 
     exp = _SimpleExperiment(output_dir, results)
@@ -72,6 +73,7 @@ async def test_config_yaml_written_before_runner_run(output_dir: Path) -> None:
 async def test_results_jsonl_has_one_line_per_result(output_dir: Path) -> None:
     results = [_make_result(0.1 * i, float(i), float(10 * i)) for i in range(1, 6)]
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.run.return_value = results
 
     exp = _SimpleExperiment(output_dir, results)
@@ -90,6 +92,7 @@ async def test_summary_json_correct_percentiles(output_dir: Path) -> None:
     results = [_make_result(t, t * 2, t * 5) for t in ttft_values]
 
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.run.return_value = results
 
     exp = _SimpleExperiment(output_dir, results)
@@ -116,6 +119,7 @@ async def test_error_results_counted_in_summary(output_dir: Path) -> None:
     ]
 
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.run.return_value = results
 
     exp = _SimpleExperiment(output_dir, results)
@@ -129,6 +133,7 @@ async def test_error_results_counted_in_summary(output_dir: Path) -> None:
 async def test_summary_json_written_to_disk(output_dir: Path) -> None:
     results = [_make_result(0.1, 1.0, 10.0)]
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.run.return_value = results
 
     exp = _SimpleExperiment(output_dir, results)
@@ -148,6 +153,7 @@ async def test_summary_json_written_to_disk(output_dir: Path) -> None:
 async def test_returned_summary_matches_written_json(output_dir: Path) -> None:
     results = [_make_result(0.1 * i, float(i), float(i * 10)) for i in range(1, 4)]
     mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
     mock_runner.run.return_value = results
 
     exp = _SimpleExperiment(output_dir, results)

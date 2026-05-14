@@ -15,7 +15,7 @@ for testing the harness on a MacBook before deploying to AWS.
 
 **1. Start the server and pull the model:**
 ```bash
-bash local/start_ollama.sh
+bash ./start_ollama.sh
 ```
 The first run downloads ~4.5 GB of model weights; subsequent runs reuse the local cache.
 
@@ -26,7 +26,7 @@ MODEL_ENDPOINT_URL=http://localhost:11434
 
 **3. Run any experiment:**
 ```bash
-python cli.py run-local --config config/exp1_baseline.yaml
+cd .. && python cli.py run-local --config config/exp1_baseline.yaml
 ```
 
 ## Stopping

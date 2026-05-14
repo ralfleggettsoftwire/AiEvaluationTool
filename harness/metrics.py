@@ -31,7 +31,8 @@ class MetricsPoller:
             )
             return data
 
-    def get_samples(self) -> list[GpuSample]:
+    def get_all_samples(self) -> list[GpuSample]:
+        """Return the full sample history collected since this poller was created."""
         return list(self._samples)
 
     def checkpoint(self) -> list[GpuSample]:
