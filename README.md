@@ -26,10 +26,17 @@ Results are uploaded to S3 immediately after each run so they survive instance s
 ## Prerequisites
 
 - Python 3.12+ and [`uv`](https://github.com/astral-sh/uv) — on your **local machine**
-- AWS credentials with EC2, S3, and Pricing API access — on your **local machine**
+- AWS credentials with EC2, S3, SSM, and Pricing API access — on your **local machine**
 - A running vLLM server (the harness does **not** start GPU instances — do that manually)
 - A `t3.large` harness EC2 instance **already created** in the same VPC as the GPU instances (its ID goes in `HARNESS_INSTANCE_ID`); see [Harness instance setup](#harness-instance-setup) below
 - An S3 bucket **already created** for result storage (its name goes in `S3_BUCKET`)
+
+## AWS infrastructure prerequisites
+
+- The harness EC2 instance must have an **IAM instance profile** with the `AmazonSSMManagedInstanceCore` AWS managed policy attached.
+- The **SSM Agent** must be running on the instance (pre-installed and enabled by default on Amazon Linux 2023 and Amazon Linux 2).
+- Your local AWS credentials need `ssm:SendCommand` and `ssm:GetCommandInvocation` permissions on the instance (or `*` for simplicity).
+- No inbound port 22 required; no SSH key file needed.
 
 To create the harness instance and S3 bucket via the AWS CLI (one-time):
 
@@ -40,11 +47,12 @@ aws s3api create-bucket \
   --region eu-west-1 \
   --create-bucket-configuration LocationConstraint=eu-west-1
 
-# Harness EC2 instance — use an AL2023 AMI; adjust SG and key-pair name
+# Harness EC2 instance — use an AL2023 AMI; adjust SG and profile name
+# --key-name is optional: port 22 is not required when using SSM Session Manager
 aws ec2 run-instances \
   --image-id <al2023-ami-id-for-your-region> \
   --instance-type t3.large \
-  --key-name harness-key \
+  --iam-instance-profile Name=<ssm-instance-profile-name> \
   --security-group-ids <sg-id> \
   --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=llm-eval-harness}]'
 # Note the InstanceId from the output and put it in .env as HARNESS_INSTANCE_ID
@@ -63,7 +71,7 @@ cp .env.example .env   # then fill in your values
 
 ## Harness instance setup
 
-These commands are run **once on the harness EC2 instance** (SSH in after creation). The harness instance is a CPU-only box; it only needs Python, `uv`, and the project code.
+These commands are run **once on the harness EC2 instance**. You can connect using SSH if you have a key, or via the AWS Systems Manager Session Manager console (Systems Manager → Session Manager → Start session) — no SSH key or open port 22 is required for the latter. The harness instance is a CPU-only box; it only needs Python, `uv`, and the project code.
 
 ```bash
 # Install Python 3.12 and uv
@@ -88,8 +96,8 @@ source ~/.bashrc
 **Networking assumptions this code makes:**
 - The harness instance and GPU instance are in the **same VPC** so the harness can reach the model via private IP.
 - The GPU instance's security group allows **inbound TCP 8000** from the harness instance's security group.
-- The harness instance has an **IAM instance profile** with `s3:PutObject` permission on the results bucket (so experiment results can be uploaded after each run).
-- The harness instance is reachable via **SSH on port 22** from your local machine using the key at `HARNESS_SSH_KEY_PATH`.
+- The harness instance has an **IAM instance profile** with `s3:PutObject` permission on the results bucket (so experiment results can be uploaded after each run) and the `AmazonSSMManagedInstanceCore` managed policy (so `cli.py run` and `cli.py experiment-status` can reach it via SSM without SSH).
+- No inbound port 22 or SSH key file is required on the harness instance.
 
 ## Local testing
 
@@ -101,16 +109,13 @@ To verify the harness works before incurring AWS costs, you can run experiments 
 
 Copy `.env.example` to `.env` and fill in your values. The CLI reads this file on startup. Never commit `.env` — it is gitignored.
 
-`HARNESS_SSH_HOST` is automatically updated in `.env` by `cli.py start` each time the instance gets a new public IP, so you do not need to update it manually.
-
 | Variable | Required for | Description |
 |----------|-------------|-------------|
-| `HARNESS_INSTANCE_ID` | `start`, `stop`, `status` | EC2 instance ID of the harness box (e.g. `i-0abc123`) |
-| `HARNESS_SSH_HOST` | `run`, `experiment-status` | Public IP of the harness instance — auto-updated by `start` |
-| `HARNESS_SSH_USER` | `run`, `experiment-status` | SSH username (typically `ec2-user`) |
-| `HARNESS_SSH_KEY_PATH` | `run`, `experiment-status` | Local path to the SSH private key |
+| `HARNESS_INSTANCE_ID` | all remote commands | EC2 instance ID of the harness box (e.g. `i-0abc123`) |
 | `S3_BUCKET` | `download` | S3 bucket name for result storage |
 | `AWS_REGION` | all | AWS region (default: `eu-west-1`) |
+
+`run` and `experiment-status` use `HARNESS_INSTANCE_ID` and your AWS credentials to communicate with the harness instance via SSM — no separate SSH host, user, or key variables are needed.
 
 ### Harness instance (`~/.bashrc`)
 
@@ -124,14 +129,13 @@ The experiment runner on the harness instance reads these at runtime (set during
 
 ## Typical workflow
 
-All `cli.py` commands run on your **local machine**. The experiment itself runs on the **harness EC2 instance** in the background, triggered via SSH.
+All `cli.py` commands run on your **local machine**. The experiment itself runs on the **harness EC2 instance** in the background, triggered via SSM.
 
 ### 1. Start the harness instance
 
 ```bash
 uv run python cli.py start
 # prints the public IP, e.g. 54.12.34.56
-# HARNESS_SSH_HOST is automatically updated in .env
 ```
 
 ### 2. Verify the instance is reachable
@@ -151,7 +155,7 @@ uv run python cli.py run --config config/exp1_baseline_small.yaml
 # Experiment started.
 ```
 
-This uploads the config to the harness instance via SSH and starts the experiment in the background. The experiment process on the harness instance logs to `~/harness.log` — SSH in and `tail -f ~/harness.log` if you need to watch progress.
+This uploads the config to the harness instance via SSM and starts the experiment in the background. The experiment process on the harness instance logs to `~/harness.log`.
 
 ### 4. Monitor until complete
 
@@ -161,12 +165,7 @@ uv run python cli.py experiment-status
 # idle      (experiment has finished)
 ```
 
-Poll this command until it prints `idle`, or tail the log on the harness instance directly:
-
-```bash
-# run on the harness instance
-tail -f ~/harness.log
-```
+Poll this command until it prints `idle`.
 
 ### 5. Download results
 

@@ -6,16 +6,16 @@ import sys
 from pathlib import Path
 
 import click
-from dotenv import find_dotenv, load_dotenv, set_key
+from dotenv import load_dotenv
 
 from harness.local_runner import run_from_config
 from management.ec2_manager import EC2Manager
 from management.s3 import S3Manager
-from management.ssh import SSHManager
+from management.ssm import SSMManager
 
 load_dotenv()
 
-_REMOTE_CONFIG_PATH = "~/harness_config.yaml"
+_REMOTE_CONFIG_PATH = "/home/ec2-user/harness_config.yaml"
 
 
 def _require_env(name: str) -> str:
@@ -41,9 +41,6 @@ def start() -> None:
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
-    env_file = find_dotenv(usecwd=True)
-    if env_file:
-        set_key(env_file, "HARNESS_SSH_HOST", ip)
     click.echo(ip)
 
 
@@ -84,13 +81,12 @@ def status() -> None:
     help="Path to YAML config file",
 )
 def run_experiment(config_path: str) -> None:
-    host = _require_env("HARNESS_SSH_HOST")
-    user = _require_env("HARNESS_SSH_USER")
-    key_path = _require_env("HARNESS_SSH_KEY_PATH")
-    ssh = SSHManager(host, user, key_path)
+    instance_id = _require_env("HARNESS_INSTANCE_ID")
+    region = os.environ.get("AWS_REGION", "eu-west-1")
+    ssm = SSMManager(instance_id, region)
     try:
-        ssh.upload_config(Path(config_path), _REMOTE_CONFIG_PATH)
-        ssh.run_experiment(_REMOTE_CONFIG_PATH)
+        ssm.upload_config(Path(config_path), _REMOTE_CONFIG_PATH)
+        ssm.run_experiment(_REMOTE_CONFIG_PATH)
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
@@ -106,7 +102,7 @@ def run_experiment(config_path: str) -> None:
     help="Path to YAML config file",
 )
 def run_local(config_path: str) -> None:
-    """Run an experiment locally without EC2/SSH infrastructure."""
+    """Run an experiment locally without EC2/SSM infrastructure."""
     asyncio.run(run_from_config(Path(config_path)))
 
 
@@ -136,12 +132,11 @@ def download(model: str | None, experiment: str | None) -> None:
 @cli.command("experiment-status")
 def experiment_status() -> None:
     """Check whether an experiment is currently running on the harness instance."""
-    host = _require_env("HARNESS_SSH_HOST")
-    user = _require_env("HARNESS_SSH_USER")
-    key_path = _require_env("HARNESS_SSH_KEY_PATH")
-    ssh = SSHManager(host, user, key_path)
+    instance_id = _require_env("HARNESS_INSTANCE_ID")
+    region = os.environ.get("AWS_REGION", "eu-west-1")
+    ssm = SSMManager(instance_id, region)
     try:
-        running = ssh.get_experiment_status()
+        running = ssm.get_experiment_status()
     except Exception as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
