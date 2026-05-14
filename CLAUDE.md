@@ -13,65 +13,70 @@ The model server is **vLLM**, which exposes an OpenAI-compatible REST API (`/v1/
 This project uses `uv` as the package manager.
 
 ```bash
-uv run python main.py          # run the application
-uv add <package>               # add a dependency
-uv run pytest                  # run all tests
+uv run python cli.py <command>     # main entry point (main.py is a placeholder)
+uv add <package>                   # add a dependency
+uv run pytest                      # run all tests
 uv run pytest tests/test_foo.py::test_bar  # run a single test
-uv run ruff check .            # lint
-uv run ruff format .           # format
-uv run pyright .               # type-check
+uv run ruff check .                # lint
+uv run ruff format .               # format
+uv run pyright .                   # type-check
 ```
 
-## Planned Architecture
+## Code Quality Requirements
 
-The codebase is being built from scratch. The planned module structure is:
+All code changes **must** pass the following without errors or warnings:
+
+- **`uv run ruff check .`** — linting (extensive rule set: E/W/F/I/N/UP/B/A/C4/SIM/TCH/ANN/RUF/PT/ERA/PL/TRY/PERF; line length 100)
+- **`uv run ruff format .`** — formatting
+- **`uv run pyright .`** — strict type checking (pythonVersion=3.12, typeCheckingMode="strict")
+- **`uv run pytest`** — all tests must pass, and new behaviour must be covered by tests
+
+## Architecture
 
 ```
-cli.py                  # click CLI — local entry point for managing the EC2 harness instance
-management/
-  ec2_manager.py        # boto3: start/stop the t3.large harness EC2 instance, waiters
-  s3.py                 # boto3: upload results to S3 after each run, download to local machine
-  ssh.py                # fabric: SSH into harness instance, upload config, trigger experiments
+cli.py                  # click CLI — local entry point; manages EC2/SSH/S3 and local runs
+models.py               # all shared Pydantic models (RequestConfig, Result, ExperimentSummary, …)
 harness/
-  client.py             # httpx async client — raw SSE parsing for precise TTFT measurement
-  metrics.py            # poll vLLM Prometheus /metrics endpoint for GPU/VRAM data
-  runner.py             # asyncio experiment runner — concurrency control via asyncio.Semaphore
+  client.py             # LLMClient: async httpx, raw SSE parsing, TTFT measurement
+  metrics.py            # MetricsPoller: polls vLLM Prometheus /metrics for GPU/VRAM data
+  runner.py             # Runner: asyncio.Semaphore-based concurrency control
+  local_runner.py       # run_from_config(): YAML → config class → experiment → results on disk
 experiments/
-  base.py               # base experiment class with shared setup/teardown and result serialisation
-  exp1_baseline.py      # single-user baseline
-  exp2_cold_start.py    # cold-start timing (starts/stops GPU instance via boto3)
-  exp3_context.py       # context length sensitivity (1k–32k tokens)
-  exp4_concurrency.py   # concurrency ramp (1–100 concurrent users)
-  exp5_soak.py          # sustained load / soak test
-  exp6_workload.py      # realistic prompt-type distribution mix
-config/                 # YAML experiment config files (one per experiment series)
-prompts/                # prompt corpus files at various token lengths
-results/                # local mirror of S3 results (gitignored)
+  base.py               # BaseExperiment: abstract; handles result serialisation and aggregation
+  exp{1-6}_*.py         # concrete experiments; each has its own Pydantic config class
+management/
+  ec2_manager.py        # boto3: start/stop harness instance, waiters, public IP
+  s3.py                 # boto3: upload/download result directories
+  ssh.py                # fabric: config upload, remote experiment trigger
+config/                 # example YAML configs (one per experiment type)
+prompts/                # static prompt files at 1k/4k/32k/128k token lengths
+tests/                  # mirrors source tree; unit tests only, all I/O mocked
 ```
 
-## Key Design Decisions
+### Key Patterns
 
-**Harness runs on a dedicated EC2 instance (`t3.large`) in the same VPC as the GPU instances.** This removes network variability as a confounding factor when comparing (model, hardware) pairs. After identifying top candidates, a separate short run from representative local developer machines characterises real-world network effects.
+**Config-driven experiment registration.** `local_runner.py` maintains a registry dict mapping `experiment_type` strings to `(ConfigClass, ExperimentClass)` pairs. Adding a new experiment requires registering it there; the CLI and YAML format work automatically.
 
-**Raw `httpx` instead of the `openai` SDK.** TTFT measurement requires capturing the exact timestamp of the first streamed byte. The `openai` SDK may buffer internally; raw SSE parsing with `httpx` gives unambiguous timing.
+**Two run modes.** `cli run` uploads a config to the harness EC2 instance and triggers it via SSH (remote mode). `cli run-local` calls `run_from_config()` directly using `MODEL_ENDPOINT_URL` from the environment (local mode, no EC2 needed).
 
-**S3 for result persistence.** The harness uploads each run's result directory to S3 immediately after completion. Results survive instance stop/termination and are accessible to the whole team without SSH access to the harness instance.
+**TTFT precision.** `LLMClient.complete()` records the timestamp of the first `data:` SSE line, not the response open. The `openai` SDK is not used because it may buffer internally.
 
-**Each experiment is independently configured and run.** There is no automated pruning or sequencing between experiments — each is a standalone execution against whatever (model, hardware) combination is currently deployed. Setting up and tearing down the GPU instances themselves is out of scope for this project.
+**GPU metrics are optional.** If the `/metrics` endpoint is unavailable, `MetricsPoller` is `None` and experiments run normally — `summary.json` simply omits `gpu_metrics`.
+
+**Summary stats exclude errors.** `BaseExperiment._finalise()` computes p50/p95/p99 over successful requests only (where `error` is null). Error and timeout counts are reported separately in `summary.json`.
+
+**Experiments with sub-runs write subdirectories.** Exp3 (context length) and Exp4 (concurrency ramp) create a subdirectory per level (e.g. `level_1/`, `00_short_1k/`) and write independent result sets in each.
 
 ## Results Directory Structure
 
-Results are written on the harness instance and mirrored to S3 with identical paths:
-
 ```
-results/<model_name>/<hardware>/<experiment_number>/<ISO-datetime>/
-  config.yaml     # verbatim copy of the config that produced this run (written first)
+results/<model_name>/<hardware>/<ExperimentClassName>/<ISO-datetime>/
+  config.yaml     # verbatim config written before any requests (partial runs are recoverable)
   results.jsonl   # one JSON line per request: timestamp, prompt_tokens, completion_tokens,
-                  #   ttft_s, total_latency_s, tokens_per_sec, error (if any)
-  summary.json    # aggregated stats: mean/p50/p95/p99 for each metric, experiment metadata
+                  #   ttft_s, total_latency_s, tokens_per_sec, error, timed_out
+  summary.json    # mean/p50/p95/p99/min/max for successful requests; error + timeout counts
+  metrics.jsonl   # GPU samples (only present when /metrics endpoint was available)
 ```
-
-`config.yaml` is always written before the first request so partial runs are recoverable and always associated with their configuration.
 
 ## Metrics
 
@@ -82,90 +87,26 @@ results/<model_name>/<hardware>/<experiment_number>/<ISO-datetime>/
 | Cost per 1k tokens | Instance on-demand hourly rate (AWS Pricing API via boto3) ÷ throughput |
 | GPU/VRAM utilisation | vLLM Prometheus endpoint: `vllm:gpu_cache_usage_perc`, `vllm:num_requests_running` |
 | Error rate | Count of timeouts, OOM responses, malformed SSE in `results.jsonl` |
-| Cold-start time | Time from EC2 `StartInstances` call to first successful inference (Experiment 2) |
-
-## Library Inventory
-
-| Library | Role |
-|---------|------|
-| `httpx` | Async streaming HTTP to model endpoint; raw SSE parsing |
-| `boto3` | EC2 lifecycle, S3 upload/download, AWS Pricing API |
-| `fabric` | SSH remote control of harness instance (upload config, trigger runs) |
-| `click` | Local management CLI |
-| `pydantic` | Typed config models and result schemas; each experiment has its own config model |
-| `pyyaml` | Experiment config files (one YAML per experiment run) |
-| `rich` | Live console output and progress during experiments |
-| `pandas` | Post-run aggregation, percentile calculations, pruning comparisons |
-| `plotly` | Interactive HTML result charts |
 
 ## Local CLI Workflow
 
 ```bash
-python cli.py start                               # start the stopped harness EC2 instance
-python cli.py run --config config/exp1.yaml       # upload config, trigger experiment, stream logs
-python cli.py status                              # check if an experiment is running
-python cli.py download [--model llama3 --experiment 1]  # sync results from S3 to local ./results/
-python cli.py stop                                # stop the harness instance
+uv run python cli.py start                                          # start harness EC2 instance
+uv run python cli.py run --config config/exp1_baseline.yaml        # upload config and trigger remotely
+uv run python cli.py run-local --config config/exp1_baseline.yaml  # run locally (needs MODEL_ENDPOINT_URL)
+uv run python cli.py status                                         # check instance state
+uv run python cli.py download [--model llama3 --experiment 1]      # sync results from S3
+uv run python cli.py stop                                           # stop harness instance
 ```
 
-Sensitive values (endpoint URL, AWS credentials, S3 bucket name, instance ID) come from environment variables, never from config files.
+Sensitive values (endpoint URL, AWS credentials, S3 bucket, instance ID) come from environment variables (see `.env.example`), never from config files.
 
-## Testing Plan
+## Testing
 
-Unit tests only — no integration or end-to-end tests. All network I/O is mocked at the library boundary.
+Unit tests only — no integration or end-to-end tests. All network I/O is mocked at the library boundary:
 
-### Test dependencies
+- **`respx`** — mocks `httpx` at the transport layer, including chunked SSE responses
+- **`moto[ec2,s3]`** — in-process AWS mock for `boto3`
+- **`unittest.mock`** — patches `fabric.Connection` for SSH tests
 
-| Library | Role |
-|---------|------|
-| `pytest` | Test runner |
-| `pytest-asyncio` | `async def` test support |
-| `respx` | Mock `httpx` at the transport layer (SSE streaming included) |
-| `moto` | In-process AWS mock for `boto3` (EC2, S3, Pricing API) |
-| `unittest.mock` | Patch `fabric` connections and anything not covered above |
-
-Add with: `uv add --dev pytest pytest-asyncio respx moto`
-
-### Test file layout
-
-Mirror the source tree under `tests/`:
-
-```
-tests/
-  conftest.py              # shared fixtures: mock httpx transport, moto AWS context, sample configs
-  harness/
-    test_client.py         # SSE parsing, TTFT measurement, error handling
-    test_metrics.py        # Prometheus response parsing
-    test_runner.py         # concurrency control, semaphore behaviour, result aggregation
-  experiments/
-    test_base.py           # config.yaml written before first request; result serialisation
-    test_exp1_baseline.py
-    test_exp2_cold_start.py
-    test_exp3_context.py
-    test_exp4_concurrency.py
-    test_exp5_soak.py
-    test_exp6_workload.py
-  management/
-    test_ec2_manager.py    # start/stop/waiter logic
-    test_s3.py             # upload, download, path construction
-    test_ssh.py            # config upload, remote trigger
-  test_cli.py              # click CliRunner for all CLI commands
-```
-
-### Mocking strategy per module
-
-**`harness/client.py`** — use `respx` to mount a fake SSE transport on the `httpx.AsyncClient`. Return a chunked response that emits `data:` lines on a controlled schedule so TTFT can be asserted precisely without real timing. Test malformed SSE, connection errors, and timeout paths.
-
-**`harness/metrics.py`** — use `respx` to return a static Prometheus text payload. Assert that `gpu_cache_usage_perc` and `num_requests_running` are parsed correctly; test missing/malformed metric lines.
-
-**`harness/runner.py`** — replace `client.complete()` with an `AsyncMock`. Assert that the semaphore limits in-flight requests to the configured concurrency ceiling; assert that all results are collected even when some requests raise.
-
-**`experiments/`** — inject a mock runner (returns pre-canned `Result` objects). Assert that `config.yaml` is written before any request is dispatched. Assert that `results.jsonl` accumulates one line per result and `summary.json` contains correct percentile values.
-
-**`management/ec2_manager.py`** — wrap each test in `@moto.mock_ec2`. Assert start/stop calls reach the correct instance ID; assert that waiters are invoked; assert that the method raises on a non-existent instance ID.
-
-**`management/s3.py`** — wrap each test in `@moto.mock_s3`. Pre-create the bucket in the fixture. Assert that upload writes the exact bytes; assert that download recreates the local path structure; assert that listing returns the expected keys.
-
-**`management/ssh.py`** — patch `fabric.Connection` with `unittest.mock.MagicMock`. Assert that `put()` is called with the correct local and remote paths; assert that `run()` receives the expected command string.
-
-**`cli.py`** — use `click.testing.CliRunner`. Patch the underlying `ec2_manager`, `s3`, and `ssh` callables so no real AWS or SSH calls are made. Assert exit codes and stdout fragments for each subcommand.
+`pytest-asyncio` is configured with `asyncio_mode = "auto"` — all `async def` tests run automatically without `@pytest.mark.asyncio`.

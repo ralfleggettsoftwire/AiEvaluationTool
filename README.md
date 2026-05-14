@@ -239,6 +239,8 @@ The `prompts/` directory contains four files at different token lengths, each us
 
 Different task types produce different output lengths, which gives more realistic throughput signals across the token tiers. Replace or extend these files with prompts representative of your team's actual usage patterns for more meaningful results.
 
+Note that a UUID is prepended to each prompt before it is sent to the model. This prevents prompt caching from generating unrealistic results.
+
 ## Results format
 
 `results.jsonl` — one JSON object per request:
@@ -269,7 +271,7 @@ Different task types produce different output lengths, which gives more realisti
 ## Testing
 
 ```bash
-uv run pytest              # all 92 unit tests
+uv run pytest              # run unit tests
 uv run ruff check .        # lint
 uv run ruff format .       # format
 uv run pyright .           # type-check
