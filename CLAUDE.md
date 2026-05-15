@@ -38,6 +38,7 @@ cli.py                  # click CLI — local entry point; manages EC2/SSM/S3 an
 models.py               # all shared Pydantic models (RequestConfig, Result, ExperimentSummary, …)
 harness/
   client.py             # LLMClient: async httpx, raw SSE parsing, TTFT measurement
+  metadata.py           # fetch_run_metadata(): auto-detects model name (vLLM /v1/models) and hardware (EC2 IMDS)
   metrics.py            # MetricsPoller: polls vLLM Prometheus /metrics for GPU/VRAM data
   runner.py             # Runner: asyncio.Semaphore-based concurrency control
   local_runner.py       # run_from_config(): YAML → config class → experiment → results on disk
@@ -56,6 +57,8 @@ tests/                  # mirrors source tree; unit tests only, all I/O mocked
 ### Key Patterns
 
 **Config-driven experiment registration.** `local_runner.py` maintains a registry dict mapping `experiment_type` strings to `(ConfigClass, ExperimentClass)` pairs. Adding a new experiment requires registering it there; the CLI and YAML format work automatically.
+
+**Auto-detected run metadata.** `model_name` and `hardware` are not set in config files. `fetch_run_metadata()` in `harness/metadata.py` resolves them at the start of each run: model name from the vLLM `/v1/models` endpoint, hardware from the EC2 Instance Metadata Service (`http://169.254.169.254/latest/meta-data/instance-type`, 1 s timeout). Both values are passed explicitly to `BaseExperiment` and used to name the results directory. If either fetch fails, the run aborts with a descriptive error before any requests are sent.
 
 **Two run modes.** `cli run` uploads a config to the harness EC2 instance and triggers it via SSM (remote mode). `cli run-local` calls `run_from_config()` directly using `MODEL_ENDPOINT_URL` from the environment (local mode, no EC2 needed).
 

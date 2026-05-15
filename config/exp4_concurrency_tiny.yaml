@@ -1,6 +1,4 @@
 experiment_type: exp4_concurrency
-model_name: qwen2.5-coder:7b
-hardware: local-macbook
 prompt_file: prompts/tiny_150.txt
 max_tokens: 64
 concurrency_levels:

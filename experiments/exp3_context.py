@@ -9,8 +9,6 @@ from models import ExperimentSummary, RequestConfig, Result
 
 
 class Exp3Config(BaseModel):
-    model_name: str
-    hardware: str
     prompt_files: list[str]
     max_tokens: int | None = None
     repeats_per_length: int = 3
@@ -18,8 +16,10 @@ class Exp3Config(BaseModel):
 
 
 class Exp3Context(BaseExperiment):
-    def __init__(self, config: Exp3Config, output_dir: Path) -> None:
-        super().__init__(config, output_dir)
+    def __init__(
+        self, config: Exp3Config, output_dir: Path, model_name: str, hardware: str
+    ) -> None:
+        super().__init__(config, output_dir, model_name, hardware)
         self._exp_config = config
 
     def build_requests(self) -> list[RequestConfig]:

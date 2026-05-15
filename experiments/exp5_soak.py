@@ -11,8 +11,6 @@ from models import ExperimentSummary, RequestConfig, Result
 
 
 class Exp5Config(BaseModel):
-    model_name: str
-    hardware: str
     prompt_file: str
     max_tokens: int | None = None
     concurrency: int = 10
@@ -21,8 +19,10 @@ class Exp5Config(BaseModel):
 
 
 class Exp5Soak(BaseExperiment):
-    def __init__(self, config: Exp5Config, output_dir: Path) -> None:
-        super().__init__(config, output_dir)
+    def __init__(
+        self, config: Exp5Config, output_dir: Path, model_name: str, hardware: str
+    ) -> None:
+        super().__init__(config, output_dir, model_name, hardware)
         self._exp_config = config
 
     def build_requests(self) -> list[RequestConfig]:

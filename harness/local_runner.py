@@ -21,12 +21,13 @@ from experiments.exp4_concurrency import Exp4Concurrency, Exp4Config
 from experiments.exp5_soak import Exp5Config, Exp5Soak
 from experiments.exp6_workload import Exp6Config, Exp6Workload
 from harness.client import LLMClient
+from harness.metadata import fetch_run_metadata
 from harness.metrics import MetricsPoller
 from harness.runner import Runner
 from management.s3 import S3Manager
 
 _console = Console()
-_err_console = Console(stderr=False)
+_err_console = Console(stderr=True)
 
 _REGISTRY: dict[str, tuple[type[Any], type[Any]]] = {
     "exp1_baseline": (Exp1Config, Exp1Baseline),
@@ -68,15 +69,24 @@ async def run_from_config(config_path: Path) -> None:
     config_class, experiment_class = _REGISTRY[experiment_type]
     config = config_class.model_validate(raw)
 
+    api_key = os.environ.get("MODEL_API_KEY")
+    try:
+        model_name, hardware = await fetch_run_metadata(endpoint, api_key=api_key)
+    except RuntimeError as exc:
+        _err_console.print(f"[red]Error:[/red] {exc}")
+        sys.exit(1)
+
     output_dir = (
         Path("results")
-        / config.model_name
-        / config.hardware
+        / model_name
+        / hardware
         / experiment_class.__name__
         / datetime.now(tz=UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
     )
 
     _console.print(f"Endpoint  : [cyan]{endpoint}[/cyan]")
+    _console.print(f"Model     : [cyan]{model_name}[/cyan]")
+    _console.print(f"Hardware  : [cyan]{hardware}[/cyan]")
     _console.print(f"Experiment: [cyan]{experiment_class.__name__}[/cyan]")
     _console.print(f"Output    : [cyan]{output_dir}[/cyan]")
 
@@ -89,10 +99,9 @@ async def run_from_config(config_path: Path) -> None:
     metrics_poller = MetricsPoller(endpoint) if has_metrics else None
     max_concurrency = getattr(config, "concurrency", 1)
 
-    api_key = os.environ.get("MODEL_API_KEY")
     async with LLMClient(endpoint, timeout=config.request_timeout_s, api_key=api_key) as client:
         runner = Runner(client, max_concurrency, metrics_poller)
-        experiment = experiment_class(config, output_dir)
+        experiment = experiment_class(config, output_dir, model_name, hardware)
         summary = await experiment.run(runner)
 
     _print_summary(summary)

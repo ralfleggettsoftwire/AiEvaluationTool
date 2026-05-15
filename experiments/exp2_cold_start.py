@@ -7,8 +7,6 @@ from models import RequestConfig
 
 
 class Exp2Config(BaseModel):
-    model_name: str
-    hardware: str
     prompt_file: str
     max_tokens: int | None = None
     n_warmup_requests: int
@@ -16,8 +14,10 @@ class Exp2Config(BaseModel):
 
 
 class Exp2ColdStart(BaseExperiment):
-    def __init__(self, config: Exp2Config, output_dir: Path) -> None:
-        super().__init__(config, output_dir)
+    def __init__(
+        self, config: Exp2Config, output_dir: Path, model_name: str, hardware: str
+    ) -> None:
+        super().__init__(config, output_dir, model_name, hardware)
         self._exp_config = config
 
     def build_requests(self) -> list[RequestConfig]:

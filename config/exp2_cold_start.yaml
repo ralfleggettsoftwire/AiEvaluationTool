@@ -1,6 +1,4 @@
 experiment_type: exp2_cold_start
-model_name: qwen2.5-coder:7b
-hardware: local-macbook
 prompt_file: prompts/small_1k.txt
 max_tokens: 1
 n_warmup_requests: 5

@@ -231,7 +231,7 @@ uv run python cli.py stop
 
 ## Configuring experiments
 
-Each experiment series has its own config schema. The provided configs in `config/` use `llama3-8b` on `g4dn.xlarge` as a starting point — change `model_name` and `hardware` to match what you're testing.
+Each experiment series has its own config schema. `model_name` and `hardware` are **not** set in config files — they are detected automatically at runtime from the vLLM `/v1/models` endpoint and the EC2 instance metadata service respectively, and used to name the results directory.
 
 `max_tokens` is optional in most configs. When omitted the model generates until it naturally stops, which gives the most representative throughput signal for a load test. Set it only in two cases: `max_tokens: 1` in Experiment 2 where only TTFT matters; and `max_tokens: 64` in completion-model configs (those ending `_tiny`) where a short cap reflects how production completion endpoints are actually deployed. Omit it everywhere else — capping output prevents the KV cache from filling and gives an unrepresentative throughput reading.
 
@@ -243,8 +243,6 @@ Sends the same prompt repeatedly from a single user. Use this to get a clean bas
 
 ```yaml
 experiment_type: exp1_baseline
-model_name: llama3-8b
-hardware: g4dn.xlarge
 prompt_file: prompts/small_1k.txt
 n_requests: 20
 max_tokens: 1024        # optional
@@ -258,9 +256,7 @@ Pre-built configs: `config/exp1_baseline_small.yaml`, `config/exp1_baseline_tiny
 Measures warm-up after a cold GPU start. Run this immediately after the GPU instance boots. The cold-start time itself (EC2 `StartInstances` → first successful response) is measured externally; this experiment does the warm-up requests.
 
 ```yaml
-# config/exp2_cold_start.yaml
-model_name: llama3-8b
-hardware: g4dn.xlarge
+experiment_type: exp2_cold_start
 prompt_file: prompts/small_1k.txt
 max_tokens: 1          # Optional, but only TTFT matters here so suggest always setting to 1
 n_warmup_requests: 5
@@ -273,8 +269,6 @@ Tests how TTFT and throughput degrade as prompt length grows. Supply one file pe
 
 ```yaml
 experiment_type: exp3_context
-model_name: llama3-8b
-hardware: g4dn.xlarge
 prompt_files:
   - prompts/tiny_150.txt
   - prompts/small_1k.txt
@@ -292,8 +286,6 @@ Shows where throughput saturates and error rates increase by stepping through a 
 
 ```yaml
 experiment_type: exp4_concurrency
-model_name: llama3-8b
-hardware: g4dn.xlarge
 prompt_file: prompts/small_1k.txt
 max_tokens: 1024        # optional
 concurrency_levels:
@@ -319,8 +311,6 @@ For the completion-model variant, set `concurrency` to roughly 50% of the satura
 
 ```yaml
 experiment_type: exp5_soak
-model_name: llama3-8b
-hardware: g4dn.xlarge
 prompt_file: prompts/small_1k.txt
 max_tokens: 1024        # optional
 concurrency: 10
@@ -339,8 +329,6 @@ Approximates a realistic developer request distribution. Before any requests are
 
 ```yaml
 experiment_type: exp6_workload
-model_name: llama3-8b
-hardware: g4dn.xlarge
 prompt_files:
   small: prompts/small_1k.txt
   medium: prompts/medium_4k.txt

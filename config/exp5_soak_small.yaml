@@ -1,6 +1,4 @@
 experiment_type: exp5_soak
-model_name: qwen2.5-coder:7b
-hardware: local-macbook
 prompt_file: prompts/small_1k.txt
 concurrency: 10
 duration_s: 300

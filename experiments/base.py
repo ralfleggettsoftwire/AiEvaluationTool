@@ -27,9 +27,11 @@ def _compute_stats(values: list[float]) -> SummaryStats:
 
 
 class BaseExperiment(ABC):
-    def __init__(self, config: BaseModel, output_dir: Path) -> None:
+    def __init__(self, config: BaseModel, output_dir: Path, model_name: str, hardware: str) -> None:
         self._config = config
         self._output_dir = output_dir
+        self._model_name = model_name
+        self._hardware = hardware
 
     @abstractmethod
     def build_requests(self) -> list[RequestConfig]: ...
@@ -83,10 +85,9 @@ class BaseExperiment(ABC):
         timeout_error_count = sum(1 for r in results if r.timed_out)
         successful = [r for r in results if r.error is None]
 
-        config_dict = self._config.model_dump(mode="json")
         summary = ExperimentSummary(
-            model_name=str(config_dict["model_name"]),
-            hardware=str(config_dict["hardware"]),
+            model_name=self._model_name,
+            hardware=self._hardware,
             experiment=type(self).__name__,
             started_at=started_at,
             completed_at=completed_at,

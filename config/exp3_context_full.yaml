@@ -1,6 +1,4 @@
 experiment_type: exp3_context
-model_name: qwen2.5-coder:7b
-hardware: local-macbook
 prompt_files:
   - prompts/tiny_150.txt
   - prompts/small_1k.txt

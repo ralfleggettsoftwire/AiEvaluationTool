@@ -22,15 +22,13 @@ def prompt_files(tmp_path: Path) -> dict[str, Path]:
 
 def test_build_requests_returns_n_requests(prompt_files: dict[str, Path]) -> None:
     config = Exp6Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
         prompt_files={k: str(v) for k, v in prompt_files.items()},
         weights=dict.fromkeys(prompt_files, 1.0),
         n_requests=50,
         concurrency=10,
         request_timeout_s=30.0,
     )
-    exp = Exp6Workload(config, Path("/tmp/unused"))
+    exp = Exp6Workload(config, Path("/tmp/unused"), "llama3", "g4dn.xlarge")
     requests = exp.build_requests()
 
     assert len(requests) == 50
@@ -38,15 +36,13 @@ def test_build_requests_returns_n_requests(prompt_files: dict[str, Path]) -> Non
 
 def test_build_requests_n_requests_count(prompt_files: dict[str, Path]) -> None:
     config = Exp6Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
         prompt_files={k: str(v) for k, v in prompt_files.items()},
         weights=dict.fromkeys(prompt_files, 1.0),
         n_requests=100,
         concurrency=10,
         request_timeout_s=30.0,
     )
-    exp = Exp6Workload(config, Path("/tmp/unused"))
+    exp = Exp6Workload(config, Path("/tmp/unused"), "llama3", "g4dn.xlarge")
     requests = exp.build_requests()
 
     assert len(requests) == 100
@@ -54,15 +50,13 @@ def test_build_requests_n_requests_count(prompt_files: dict[str, Path]) -> None:
 
 def test_build_requests_returns_request_config_objects(prompt_files: dict[str, Path]) -> None:
     config = Exp6Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
         prompt_files={k: str(v) for k, v in prompt_files.items()},
         weights=dict.fromkeys(prompt_files, 1.0),
         n_requests=10,
         concurrency=10,
         request_timeout_s=30.0,
     )
-    exp = Exp6Workload(config, Path("/tmp/unused"))
+    exp = Exp6Workload(config, Path("/tmp/unused"), "llama3", "g4dn.xlarge")
     requests = exp.build_requests()
 
     assert all(isinstance(r, RequestConfig) for r in requests)
@@ -70,8 +64,6 @@ def test_build_requests_returns_request_config_objects(prompt_files: dict[str, P
 
 def test_build_requests_prompts_come_from_files(prompt_files: dict[str, Path]) -> None:
     config = Exp6Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
         prompt_files={k: str(v) for k, v in prompt_files.items()},
         weights=dict.fromkeys(prompt_files, 1.0),
         n_requests=30,
@@ -79,7 +71,7 @@ def test_build_requests_prompts_come_from_files(prompt_files: dict[str, Path]) -
         max_tokens=128,
         request_timeout_s=30.0,
     )
-    exp = Exp6Workload(config, Path("/tmp/unused"))
+    exp = Exp6Workload(config, Path("/tmp/unused"), "llama3", "g4dn.xlarge")
     requests = exp.build_requests()
 
     valid_prompts = {"short prompt", "medium prompt", "long prompt"}
@@ -90,15 +82,13 @@ def test_build_requests_prompts_come_from_files(prompt_files: dict[str, Path]) -
 
 def test_build_requests_weight_distribution_approximate(prompt_files: dict[str, Path]) -> None:
     config = Exp6Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
         prompt_files={k: str(v) for k, v in prompt_files.items()},
         weights={"short": 1.0, "medium": 0.0, "long": 0.0},
         n_requests=20,
         concurrency=10,
         request_timeout_s=30.0,
     )
-    exp = Exp6Workload(config, Path("/tmp/unused"))
+    exp = Exp6Workload(config, Path("/tmp/unused"), "llama3", "g4dn.xlarge")
     requests = exp.build_requests()
 
     assert all(r.prompt == "short prompt" for r in requests)
@@ -108,15 +98,13 @@ def test_build_requests_single_file(tmp_path: Path) -> None:
     p = tmp_path / "only.txt"
     p.write_text("only prompt", encoding="utf-8")
     config = Exp6Config(
-        model_name="llama3",
-        hardware="g4dn.xlarge",
         prompt_files={"only": str(p)},
         weights={"only": 1.0},
         n_requests=5,
         concurrency=10,
         request_timeout_s=30.0,
     )
-    exp = Exp6Workload(config, Path("/tmp/unused"))
+    exp = Exp6Workload(config, Path("/tmp/unused"), "llama3", "g4dn.xlarge")
     requests = exp.build_requests()
 
     assert len(requests) == 5

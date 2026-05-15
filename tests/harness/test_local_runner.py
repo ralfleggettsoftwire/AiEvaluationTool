@@ -31,8 +31,6 @@ def config_file(tmp_path: Path) -> Path:
     config = tmp_path / "config.yaml"
     config.write_text(
         "experiment_type: exp1_baseline\n"
-        "model_name: llama3\n"
-        "hardware: g4dn.xlarge\n"
         f"prompt_file: {prompt}\n"
         "n_requests: 1\n"
         "request_timeout_s: 30.0\n",
@@ -50,6 +48,9 @@ def _mock_llm_client(result: Result) -> MagicMock:
     return ctx
 
 
+_METADATA = ("llama3", "g4dn.xlarge")
+
+
 async def test_run_from_config_uploads_to_s3_when_bucket_set(
     config_file: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -61,6 +62,7 @@ async def test_run_from_config_uploads_to_s3_when_bucket_set(
     monkeypatch.chdir(tmp_path)
 
     with (
+        patch("harness.local_runner.fetch_run_metadata", AsyncMock(return_value=_METADATA)),
         patch("harness.local_runner._probe_metrics", AsyncMock(return_value=False)),
         patch("harness.local_runner.LLMClient", return_value=_mock_llm_client(_make_result())),
         patch("harness.local_runner.S3Manager") as mock_s3_cls,
@@ -85,6 +87,7 @@ async def test_run_from_config_skips_s3_when_no_bucket(
     monkeypatch.chdir(tmp_path)
 
     with (
+        patch("harness.local_runner.fetch_run_metadata", AsyncMock(return_value=_METADATA)),
         patch("harness.local_runner._probe_metrics", AsyncMock(return_value=False)),
         patch("harness.local_runner.LLMClient", return_value=_mock_llm_client(_make_result())),
         patch("harness.local_runner.S3Manager") as mock_s3_cls,

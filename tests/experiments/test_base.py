@@ -30,14 +30,13 @@ def _make_result(
     )
 
 
+class _EmptyCfg(BaseModel):
+    pass
+
+
 class _SimpleExperiment(BaseExperiment):
     def __init__(self, output_dir: Path, results_to_return: list[Result]) -> None:
-
-        class _Cfg(BaseModel):
-            model_name: str = "test-model"
-            hardware: str = "g4dn.xlarge"
-
-        super().__init__(_Cfg(), output_dir)
+        super().__init__(_EmptyCfg(), output_dir, "test-model", "g4dn.xlarge")
         self._preset_results = results_to_return
 
     def build_requests(self) -> list[RequestConfig]:
