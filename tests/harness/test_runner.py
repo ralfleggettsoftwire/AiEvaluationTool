@@ -131,3 +131,78 @@ async def test_empty_request_list_returns_empty() -> None:
     results = await runner.run([])
     assert results == []
     mock_client.complete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_on_result_called_for_each_completed_request() -> None:
+    results_to_return = [_make_result(i + 1) for i in range(4)]
+
+    async def _complete(req: RequestConfig) -> Result:
+        idx = int(req.prompt.split()[-1])
+        return results_to_return[idx]
+
+    mock_client = AsyncMock()
+    mock_client.complete.side_effect = _complete
+
+    received: list[Result] = []
+    runner = Runner(mock_client, max_concurrency=4)
+    await runner.run(_make_requests(4), on_result=received.append)
+
+    assert len(received) == 4
+    assert {r.completion_tokens for r in received} == {1, 2, 3, 4}
+
+
+@pytest.mark.asyncio
+async def test_on_result_called_for_error_results() -> None:
+    async def _complete(_req: RequestConfig) -> Result:
+        raise ValueError("oops")
+
+    mock_client = AsyncMock()
+    mock_client.complete.side_effect = _complete
+
+    received: list[Result] = []
+    runner = Runner(mock_client, max_concurrency=2)
+    await runner.run(_make_requests(3), on_result=received.append)
+
+    assert len(received) == 3
+    assert all(r.error is not None for r in received)
+
+
+@pytest.mark.asyncio
+async def test_on_result_none_does_not_raise() -> None:
+    mock_client = AsyncMock()
+    mock_client.complete.return_value = _make_result()
+
+    runner = Runner(mock_client, max_concurrency=2)
+    results = await runner.run(_make_requests(3), on_result=None)
+
+    assert len(results) == 3
+
+
+@pytest.mark.asyncio
+async def test_on_result_receives_same_objects_as_returned_results() -> None:
+    """on_result callback is called after results[index] is assigned — same object identity."""
+    mock_client = AsyncMock()
+    mock_client.complete.return_value = _make_result()
+
+    received: list[Result] = []
+    runner = Runner(mock_client, max_concurrency=2)
+    results = await runner.run(_make_requests(3), on_result=received.append)
+
+    assert len(received) == 3
+    assert all(r in results for r in received)
+
+
+@pytest.mark.asyncio
+async def test_on_result_raising_does_not_abort_run() -> None:
+    """A callback that raises must not prevent remaining requests from completing."""
+    mock_client = AsyncMock()
+    mock_client.complete.return_value = _make_result()
+
+    def _bad_callback(_result: Result) -> None:
+        raise OSError("disk full")
+
+    runner = Runner(mock_client, max_concurrency=2)
+    results = await runner.run(_make_requests(4), on_result=_bad_callback)
+
+    assert len(results) == 4

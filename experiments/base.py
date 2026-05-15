@@ -1,15 +1,20 @@
 import json
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import IO
 
 import numpy as np
 import yaml
 from pydantic import BaseModel
+from rich.console import Console
 
 from harness.metrics import compute_gpu_stats
 from harness.runner import Runner
 from models import ExperimentSummary, GpuSample, RequestConfig, Result, SummaryStats
+
+_console = Console(log_path=False)
 
 
 def _compute_stats(values: list[float]) -> SummaryStats:
@@ -24,6 +29,31 @@ def _compute_stats(values: list[float]) -> SummaryStats:
         min=float(np.min(arr)),
         max=float(np.max(arr)),
     )
+
+
+def make_result_callback(
+    fh: IO[str],
+    counter: list[int],
+    total: int | None,
+) -> Callable[[Result], None]:
+    """Return a callback that appends each result to *fh* and logs progress."""
+
+    def on_result(result: Result) -> None:
+        fh.write(result.model_dump_json() + "\n")
+        fh.flush()
+        counter[0] += 1
+        n = counter[0]
+        progress = f"[{n}/{total}]" if total is not None else f"[#{n}]"
+        suffix = f"  ERR: {result.error}" if result.error else ""
+        _console.log(
+            f"  {progress}"
+            f"  ttft={result.ttft_s:.3f}s"
+            f"  latency={result.total_latency_s:.3f}s"
+            f"  tok/s={result.tokens_per_sec:.1f}"
+            f"{suffix}"
+        )
+
+    return on_result
 
 
 class BaseExperiment(ABC):
@@ -47,9 +77,16 @@ class BaseExperiment(ABC):
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._write_config()
 
-        started_at = datetime.now(tz=UTC)
-        results = await runner.run(self.build_requests())
-        completed_at = datetime.now(tz=UTC)
+        requests = self.build_requests()
+        counter = [0]
+
+        with (self._output_dir / "results.jsonl").open("w", encoding="utf-8") as fh:
+            started_at = datetime.now(tz=UTC)
+            results = await runner.run(
+                requests,
+                on_result=make_result_callback(fh, counter, len(requests)),
+            )
+            completed_at = datetime.now(tz=UTC)
 
         poller = runner.metrics_poller
         return self._finalise(
@@ -57,6 +94,7 @@ class BaseExperiment(ABC):
             started_at,
             completed_at,
             gpu_samples=poller.get_all_samples() if poller else None,
+            skip_results_file=True,
         )
 
     def _finalise(
@@ -66,14 +104,16 @@ class BaseExperiment(ABC):
         completed_at: datetime,
         output_dir: Path | None = None,
         gpu_samples: list[GpuSample] | None = None,
+        skip_results_file: bool = False,
     ) -> ExperimentSummary:
         resolved_dir = output_dir if output_dir is not None else self._output_dir
         resolved_dir.mkdir(parents=True, exist_ok=True)
 
-        results_path = resolved_dir / "results.jsonl"
-        with results_path.open("w", encoding="utf-8") as fh:
-            for r in results:
-                fh.write(r.model_dump_json() + "\n")
+        if not skip_results_file:
+            results_path = resolved_dir / "results.jsonl"
+            with results_path.open("w", encoding="utf-8") as fh:
+                for r in results:
+                    fh.write(r.model_dump_json() + "\n")
 
         if gpu_samples:
             metrics_path = resolved_dir / "metrics.jsonl"

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -67,6 +68,17 @@ def test_build_requests_returns_request_config_objects(prompt_file: Path) -> Non
     assert all(isinstance(r, RequestConfig) for r in requests)
 
 
+def _run_side_effect(
+    reqs: list[RequestConfig],
+    on_result: Callable[[Result], None] | None = None,
+) -> list[Result]:
+    level_results = [_make_result() for _ in reqs]
+    if on_result is not None:
+        for r in level_results:
+            on_result(r)
+    return level_results
+
+
 @pytest.mark.asyncio
 async def test_run_calls_runner_once_per_concurrency_level(
     prompt_file: Path, tmp_path: Path
@@ -80,13 +92,10 @@ async def test_run_calls_runner_once_per_concurrency_level(
     output_dir = tmp_path / "out"
     exp = Exp4Concurrency(config, output_dir, "llama3", "g4dn.xlarge")
 
-    def _side_effect_1(reqs: list[RequestConfig]) -> list[Result]:
-        return [_make_result() for _ in reqs]
-
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
-    mock_runner.run.side_effect = _side_effect_1
+    mock_runner.run.side_effect = _run_side_effect
 
     summary = await exp.run(mock_runner)
 
@@ -113,9 +122,12 @@ async def test_run_dispatches_level_times_requests_per_user_per_step(
     mock_runner.set_max_concurrency = MagicMock()
     dispatched: list[int] = []
 
-    async def _run(reqs: list[RequestConfig]) -> list[Result]:
+    async def _run(
+        reqs: list[RequestConfig],
+        on_result: Callable[[Result], None] | None = None,
+    ) -> list[Result]:
         dispatched.append(len(reqs))
-        return [_make_result() for _ in reqs]
+        return _run_side_effect(reqs, on_result)
 
     mock_runner.run.side_effect = _run
 
@@ -135,13 +147,10 @@ async def test_run_sets_concurrency_per_level(prompt_file: Path, tmp_path: Path)
     output_dir = tmp_path / "out"
     exp = Exp4Concurrency(config, output_dir, "llama3", "g4dn.xlarge")
 
-    def _side_effect_2(reqs: list[RequestConfig]) -> list[Result]:
-        return [_make_result() for _ in reqs]
-
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
-    mock_runner.run.side_effect = _side_effect_2
+    mock_runner.run.side_effect = _run_side_effect
 
     await exp.run(mock_runner)
 
@@ -164,9 +173,12 @@ async def test_run_writes_config_before_first_runner_call(
 
     config_written_before: list[bool] = []
 
-    async def _run(requests: list[RequestConfig]) -> list[Result]:
+    async def _run(
+        requests: list[RequestConfig],
+        on_result: Callable[[Result], None] | None = None,
+    ) -> list[Result]:
         config_written_before.append((output_dir / "config.yaml").exists())
-        return [_make_result() for _ in requests]
+        return _run_side_effect(requests, on_result)
 
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None

@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -20,15 +21,19 @@ class Runner:
         self._sem = asyncio.Semaphore(max_concurrency)
         self._metrics_poller = metrics_poller
 
-    async def run(self, requests: list[RequestConfig]) -> list[Result]:
+    async def run(
+        self,
+        requests: list[RequestConfig],
+        on_result: Callable[[Result], None] | None = None,
+    ) -> list[Result]:
         results: list[Result | None] = [None] * len(requests)
 
         async def _execute(index: int, req: RequestConfig) -> None:
             async with self._sem:
                 try:
-                    results[index] = await self._client.complete(req)
+                    result = await self._client.complete(req)
                 except Exception as exc:
-                    results[index] = Result(
+                    result = Result(
                         timestamp=datetime.now(tz=UTC),
                         prompt_tokens=0,
                         completion_tokens=0,
@@ -37,6 +42,10 @@ class Runner:
                         tokens_per_sec=0.0,
                         error=str(exc),
                     )
+                results[index] = result
+                if on_result is not None:
+                    with contextlib.suppress(Exception):
+                        on_result(result)
 
         tasks = [asyncio.create_task(_execute(i, req)) for i, req in enumerate(requests)]
 

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from experiments.base import BaseExperiment
+from experiments.base import BaseExperiment, make_result_callback
 from harness.runner import Runner
 from models import ExperimentSummary, RequestConfig, Result
 
@@ -49,18 +49,26 @@ class Exp4Concurrency(BaseExperiment):
                 RequestConfig(prompt=prompt, max_tokens=self._exp_config.max_tokens)
                 for _ in range(level * self._exp_config.requests_per_user)
             ]
+            subdir = self._output_dir / f"level_{level}"
+            subdir.mkdir(parents=True, exist_ok=True)
+            counter = [0]
+
             level_started_at = datetime.now(tz=UTC)
-            level_results = await runner.run(level_requests)
+            with (subdir / "results.jsonl").open("w", encoding="utf-8") as fh:
+                level_results = await runner.run(
+                    level_requests,
+                    on_result=make_result_callback(fh, counter, len(level_requests)),
+                )
             level_completed_at = datetime.now(tz=UTC)
             level_samples = poller.checkpoint() if poller else None
 
-            subdir = self._output_dir / f"level_{level}"
             self._finalise(
                 level_results,
                 level_started_at,
                 level_completed_at,
                 output_dir=subdir,
                 gpu_samples=level_samples,
+                skip_results_file=True,
             )
             all_results.extend(level_results)
 

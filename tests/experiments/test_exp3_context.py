@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -18,6 +19,17 @@ def _make_result() -> Result:
         tokens_per_sec=10.0,
         error=None,
     )
+
+
+def _run_side_effect(
+    reqs: list[RequestConfig],
+    on_result: Callable[[Result], None] | None = None,
+) -> list[Result]:
+    level_results = [_make_result() for _ in reqs]
+    if on_result is not None:
+        for r in level_results:
+            on_result(r)
+    return level_results
 
 
 @pytest.fixture
@@ -117,12 +129,9 @@ async def test_run_creates_per_prompt_subdirectories(
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir, "llama3", "g4dn.xlarge")
 
-    def _side_effect_1(reqs: list[RequestConfig]) -> list[Result]:
-        return [_make_result() for _ in reqs]
-
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
-    mock_runner.run.side_effect = _side_effect_1
+    mock_runner.run.side_effect = _run_side_effect
 
     await exp.run(mock_runner)
 
@@ -142,12 +151,9 @@ async def test_run_each_subdir_has_results_and_summary(
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir, "llama3", "g4dn.xlarge")
 
-    def _side_effect_2(reqs: list[RequestConfig]) -> list[Result]:
-        return [_make_result() for _ in reqs]
-
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
-    mock_runner.run.side_effect = _side_effect_2
+    mock_runner.run.side_effect = _run_side_effect
 
     await exp.run(mock_runner)
 
@@ -169,12 +175,9 @@ async def test_run_top_level_summary_aggregates_all_results(
     output_dir = tmp_path / "out"
     exp = Exp3Context(config, output_dir, "llama3", "g4dn.xlarge")
 
-    def _side_effect_3(reqs: list[RequestConfig]) -> list[Result]:
-        return [_make_result() for _ in reqs]
-
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
-    mock_runner.run.side_effect = _side_effect_3
+    mock_runner.run.side_effect = _run_side_effect
 
     summary = await exp.run(mock_runner)
 
@@ -195,9 +198,16 @@ async def test_run_config_yaml_written_before_first_request(
 
     config_written: list[bool] = []
 
-    async def _run(reqs: list[RequestConfig]) -> list[Result]:
+    async def _run(
+        reqs: list[RequestConfig],
+        on_result: Callable[[Result], None] | None = None,
+    ) -> list[Result]:
         config_written.append((output_dir / "config.yaml").exists())
-        return [_make_result() for _ in reqs]
+        level_results = [_make_result() for _ in reqs]
+        if on_result is not None:
+            for r in level_results:
+                on_result(r)
+        return level_results
 
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None

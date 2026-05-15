@@ -24,7 +24,7 @@ class SSMManager:
         self._poll_interval: float = 2.0
         self._timeout: float = 120.0
 
-    def _send_and_wait(self, command: str) -> int:
+    def _send_and_capture(self, command: str) -> tuple[int, str]:
         response: SendCommandResultTypeDef = self._client.send_command(
             InstanceIds=[self._instance_id],
             DocumentName="AWS-RunShellScript",
@@ -50,8 +50,13 @@ class SSMManager:
                 raise
             status: str = invocation["Status"]
             if status not in _PENDING_STATUSES:
-                return int(invocation["ResponseCode"])
+                stdout: str = invocation["StandardOutputContent"]
+                return int(invocation["ResponseCode"]), stdout
             time.sleep(self._poll_interval)
+
+    def _send_and_wait(self, command: str) -> int:
+        rc, _ = self._send_and_capture(command)
+        return rc
 
     def _send_no_wait(self, command: str) -> None:
         self._client.send_command(
@@ -89,3 +94,13 @@ class SSMManager:
     def get_experiment_status(self) -> bool:
         rc = self._send_and_wait("pgrep -f 'cli.py run-local'")
         return rc == 0
+
+    def cancel_experiment(self) -> bool:
+        rc = self._send_and_wait("pkill -f 'cli.py run-local'")
+        return rc == 0
+
+    def tail_harness_log(self, lines: int = 50) -> str:
+        rc, output = self._send_and_capture(f"tail -n {lines} ~/harness.log")
+        if rc != 0:
+            raise RuntimeError(f"Failed to read harness.log (exit code {rc})")
+        return output

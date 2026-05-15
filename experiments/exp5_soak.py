@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from experiments.base import BaseExperiment
+from experiments.base import BaseExperiment, make_result_callback
 from harness.runner import Runner
 from models import ExperimentSummary, RequestConfig, Result
 
@@ -39,15 +39,19 @@ class Exp5Soak(BaseExperiment):
         all_results: list[Result] = []
         started_at = datetime.now(tz=UTC)
         deadline = time.monotonic() + self._exp_config.duration_s
+        counter = [0]
 
         runner.set_max_concurrency(self._exp_config.concurrency)
 
-        async def user_loop() -> None:
-            while time.monotonic() < deadline:
-                results = await runner.run([req])
-                all_results.extend(results)
+        with (self._output_dir / "results.jsonl").open("w", encoding="utf-8") as fh:
+            callback = make_result_callback(fh, counter, total=None)
 
-        await asyncio.gather(*[user_loop() for _ in range(self._exp_config.concurrency)])
+            async def user_loop() -> None:
+                while time.monotonic() < deadline:
+                    results = await runner.run([req], on_result=callback)
+                    all_results.extend(results)
+
+            await asyncio.gather(*[user_loop() for _ in range(self._exp_config.concurrency)])
 
         completed_at = datetime.now(tz=UTC)
         poller = runner.metrics_poller
@@ -56,4 +60,5 @@ class Exp5Soak(BaseExperiment):
             started_at,
             completed_at,
             gpu_samples=poller.get_all_samples() if poller else None,
+            skip_results_file=True,
         )

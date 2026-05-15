@@ -144,6 +144,45 @@ def experiment_status() -> None:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
     click.echo("running" if running else "idle")
+    if running:
+        try:
+            click.echo(ssm.tail_harness_log())
+        except Exception as exc:
+            click.echo(f"Warning: could not read harness.log: {exc}", err=True)
+
+
+@cli.command()
+def cancel() -> None:
+    """Cancel a running experiment on the harness instance."""
+    instance_id = _require_env("HARNESS_INSTANCE_ID")
+    region = os.environ.get("AWS_REGION", "eu-west-1")
+    ssm = SSMManager(instance_id, region)
+    try:
+        killed = ssm.cancel_experiment()
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    click.echo("Experiment cancelled." if killed else "No running experiment found.")
+
+
+@cli.command()
+@click.option(
+    "--lines",
+    default=50,
+    show_default=True,
+    type=click.IntRange(min=1),
+    help="Number of log lines to show.",
+)
+def logs(lines: int) -> None:
+    """Show the last N lines of harness.log from the EC2 instance."""
+    instance_id = _require_env("HARNESS_INSTANCE_ID")
+    region = os.environ.get("AWS_REGION", "eu-west-1")
+    ssm = SSMManager(instance_id, region)
+    try:
+        click.echo(ssm.tail_harness_log(lines))
+    except Exception as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

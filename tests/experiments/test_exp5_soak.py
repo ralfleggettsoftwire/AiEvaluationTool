@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -66,10 +67,19 @@ async def test_run_each_user_loops_until_duration_elapsed(
     output_dir = tmp_path / "out"
     exp = Exp5Soak(config, output_dir, "llama3", "g4dn.xlarge")
 
+    async def _run(
+        reqs: list[RequestConfig],
+        on_result: Callable[[Result], None] | None = None,
+    ) -> list[Result]:
+        result = _make_result()
+        if on_result is not None:
+            on_result(result)
+        return [result]
+
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
-    mock_runner.run.return_value = [_make_result()]
+    mock_runner.run.side_effect = _run
 
     start = time.monotonic()
     summary = await exp.run(mock_runner)
@@ -91,10 +101,19 @@ async def test_run_sets_concurrency_on_runner(prompt_file: Path, tmp_path: Path)
     output_dir = tmp_path / "out"
     exp = Exp5Soak(config, output_dir, "llama3", "g4dn.xlarge")
 
+    async def _run(
+        reqs: list[RequestConfig],
+        on_result: Callable[[Result], None] | None = None,
+    ) -> list[Result]:
+        result = _make_result()
+        if on_result is not None:
+            on_result(result)
+        return [result]
+
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
-    mock_runner.run.return_value = [_make_result()]
+    mock_runner.run.side_effect = _run
 
     await exp.run(mock_runner)
 
@@ -112,10 +131,19 @@ async def test_run_accumulates_results_from_all_users(prompt_file: Path, tmp_pat
     output_dir = tmp_path / "out"
     exp = Exp5Soak(config, output_dir, "llama3", "g4dn.xlarge")
 
+    async def _run(
+        reqs: list[RequestConfig],
+        on_result: Callable[[Result], None] | None = None,
+    ) -> list[Result]:
+        result = _make_result()
+        if on_result is not None:
+            on_result(result)
+        return [result]
+
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
     mock_runner.set_max_concurrency = MagicMock()
-    mock_runner.run.return_value = [_make_result()]
+    mock_runner.run.side_effect = _run
 
     summary = await exp.run(mock_runner)
 
@@ -135,9 +163,15 @@ async def test_run_writes_config_before_first_request(prompt_file: Path, tmp_pat
 
     config_written_before: list[bool] = []
 
-    async def _run(requests: list[RequestConfig]) -> list[Result]:
+    async def _run(
+        requests: list[RequestConfig],
+        on_result: Callable[[Result], None] | None = None,
+    ) -> list[Result]:
         config_written_before.append((output_dir / "config.yaml").exists())
-        return [_make_result()]
+        result = _make_result()
+        if on_result is not None:
+            on_result(result)
+        return [result]
 
     mock_runner = AsyncMock()
     mock_runner.metrics_poller = None
@@ -147,3 +181,39 @@ async def test_run_writes_config_before_first_request(prompt_file: Path, tmp_pat
     await exp.run(mock_runner)
 
     assert config_written_before[0] is True
+
+
+@pytest.mark.asyncio
+async def test_run_streams_results_jsonl_incrementally(prompt_file: Path, tmp_path: Path) -> None:
+    config = Exp5Config(
+        prompt_file=str(prompt_file),
+        concurrency=1,
+        duration_s=1,
+        request_timeout_s=30.0,
+    )
+    output_dir = tmp_path / "out"
+    exp = Exp5Soak(config, output_dir, "llama3", "g4dn.xlarge")
+
+    line_counts: list[int] = []
+
+    async def _run(
+        reqs: list[RequestConfig],
+        on_result: Callable[[Result], None] | None = None,
+    ) -> list[Result]:
+        result = _make_result()
+        if on_result is not None:
+            on_result(result)
+        path = output_dir / "results.jsonl"
+        if path.exists():
+            line_counts.append(len(path.read_text(encoding="utf-8").strip().splitlines()))
+        return [result]
+
+    mock_runner = AsyncMock()
+    mock_runner.metrics_poller = None
+    mock_runner.set_max_concurrency = MagicMock()
+    mock_runner.run.side_effect = _run
+
+    await exp.run(mock_runner)
+
+    assert len(line_counts) >= 1
+    assert line_counts == list(range(1, len(line_counts) + 1))

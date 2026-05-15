@@ -213,21 +213,33 @@ class TestDownload:
 
 
 class TestExperimentStatus:
-    def test_running_prints_running(self, runner: CliRunner, ec2_env: None) -> None:
+    def test_running_prints_running_and_log(self, runner: CliRunner, ec2_env: None) -> None:
         mock_ssm = MagicMock()
         mock_ssm.return_value.get_experiment_status.return_value = True
+        mock_ssm.return_value.tail_harness_log.return_value = "some log output\n"
         with patch("cli.SSMManager", mock_ssm):
             result = runner.invoke(cli, ["experiment-status"])
         assert result.exit_code == 0
         assert "running" in result.output
+        assert "some log output" in result.output
 
-    def test_idle_prints_idle(self, runner: CliRunner, ec2_env: None) -> None:
+    def test_idle_prints_idle_without_log(self, runner: CliRunner, ec2_env: None) -> None:
         mock_ssm = MagicMock()
         mock_ssm.return_value.get_experiment_status.return_value = False
         with patch("cli.SSMManager", mock_ssm):
             result = runner.invoke(cli, ["experiment-status"])
         assert result.exit_code == 0
         assert "idle" in result.output
+        mock_ssm.return_value.tail_harness_log.assert_not_called()
+
+    def test_running_log_failure_warns_but_exits_0(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.get_experiment_status.return_value = True
+        mock_ssm.return_value.tail_harness_log.side_effect = RuntimeError("SSM error")
+        with patch("cli.SSMManager", mock_ssm):
+            result = runner.invoke(cli, ["experiment-status"])
+        assert result.exit_code == 0
+        assert "running" in result.output
 
     def test_error_exits_nonzero(self, runner: CliRunner, ec2_env: None) -> None:
         mock_ssm = MagicMock()
@@ -240,5 +252,68 @@ class TestExperimentStatus:
     def test_missing_env_exits_1(self, runner: CliRunner) -> None:
         with patch.dict(os.environ, {}, clear=True):
             result = runner.invoke(cli, ["experiment-status"])
+        assert result.exit_code == 1
+        assert "HARNESS_INSTANCE_ID" in result.output
+
+
+class TestCancel:
+    def test_killed_prints_cancelled(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.cancel_experiment.return_value = True
+        with patch("cli.SSMManager", mock_ssm):
+            result = runner.invoke(cli, ["cancel"])
+        assert result.exit_code == 0
+        assert "cancelled" in result.output.lower()
+
+    def test_not_running_prints_not_found(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.cancel_experiment.return_value = False
+        with patch("cli.SSMManager", mock_ssm):
+            result = runner.invoke(cli, ["cancel"])
+        assert result.exit_code == 0
+        assert "No running experiment" in result.output
+
+    def test_error_exits_nonzero(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.cancel_experiment.side_effect = RuntimeError("SSM error")
+        with patch("cli.SSMManager", mock_ssm):
+            result = runner.invoke(cli, ["cancel"])
+        assert result.exit_code != 0
+        assert "Error" in result.output
+
+    def test_missing_env_exits_1(self, runner: CliRunner) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            result = runner.invoke(cli, ["cancel"])
+        assert result.exit_code == 1
+        assert "HARNESS_INSTANCE_ID" in result.output
+
+
+class TestLogs:
+    def test_shows_log_output(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.tail_harness_log.return_value = "log line 1\nlog line 2\n"
+        with patch("cli.SSMManager", mock_ssm):
+            result = runner.invoke(cli, ["logs"])
+        assert result.exit_code == 0
+        assert "log line 1" in result.output
+
+    def test_custom_line_count_forwarded(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.tail_harness_log.return_value = ""
+        with patch("cli.SSMManager", mock_ssm):
+            runner.invoke(cli, ["logs", "--lines", "100"])
+        mock_ssm.return_value.tail_harness_log.assert_called_once_with(100)
+
+    def test_error_exits_nonzero(self, runner: CliRunner, ec2_env: None) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.tail_harness_log.side_effect = RuntimeError("SSM error")
+        with patch("cli.SSMManager", mock_ssm):
+            result = runner.invoke(cli, ["logs"])
+        assert result.exit_code != 0
+        assert "Error" in result.output
+
+    def test_missing_env_exits_1(self, runner: CliRunner) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            result = runner.invoke(cli, ["logs"])
         assert result.exit_code == 1
         assert "HARNESS_INSTANCE_ID" in result.output
