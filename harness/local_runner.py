@@ -26,8 +26,8 @@ from harness.metrics import MetricsPoller
 from harness.runner import Runner
 from management.s3 import S3Manager
 
-_console = Console()
-_err_console = Console(stderr=True)
+_console = Console(log_path=False)
+_err_console = Console(stderr=True, log_path=False)
 
 _REGISTRY: dict[str, tuple[type[Any], type[Any]]] = {
     "exp1_baseline": (Exp1Config, Exp1Baseline),
@@ -53,17 +53,17 @@ async def _probe_metrics(base_url: str) -> bool:
 async def run_from_config(config_path: Path) -> None:
     endpoint = os.environ.get("MODEL_ENDPOINT_URL")
     if not endpoint:
-        _err_console.print("[red]Error:[/red] MODEL_ENDPOINT_URL is not set")
+        _err_console.log("[red]Error:[/red] MODEL_ENDPOINT_URL is not set")
         sys.exit(1)
     endpoint = endpoint.rstrip("/")
 
     raw: dict[str, Any] = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     experiment_type = raw.get("experiment_type")
     if not experiment_type:
-        _err_console.print("[red]Error:[/red] config missing 'experiment_type' field")
+        _err_console.log("[red]Error:[/red] config missing 'experiment_type' field")
         sys.exit(1)
     if experiment_type not in _REGISTRY:
-        _err_console.print(f"[red]Error:[/red] unknown experiment_type {experiment_type!r}")
+        _err_console.log(f"[red]Error:[/red] unknown experiment_type {experiment_type!r}")
         sys.exit(1)
 
     config_class, experiment_class = _REGISTRY[experiment_type]
@@ -73,7 +73,7 @@ async def run_from_config(config_path: Path) -> None:
     try:
         model_name, hardware = await fetch_run_metadata(endpoint, api_key=api_key)
     except RuntimeError as exc:
-        _err_console.print(f"[red]Error:[/red] {exc}")
+        _err_console.log(f"[red]Error:[/red] {exc}")
         sys.exit(1)
 
     output_dir = (
@@ -84,17 +84,17 @@ async def run_from_config(config_path: Path) -> None:
         / datetime.now(tz=UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
     )
 
-    _console.print(f"Endpoint  : [cyan]{endpoint}[/cyan]")
-    _console.print(f"Model     : [cyan]{model_name}[/cyan]")
-    _console.print(f"Hardware  : [cyan]{hardware}[/cyan]")
-    _console.print(f"Experiment: [cyan]{experiment_class.__name__}[/cyan]")
-    _console.print(f"Output    : [cyan]{output_dir}[/cyan]")
+    _console.log(f"Endpoint  : [cyan]{endpoint}[/cyan]")
+    _console.log(f"Model     : [cyan]{model_name}[/cyan]")
+    _console.log(f"Hardware  : [cyan]{hardware}[/cyan]")
+    _console.log(f"Experiment: [cyan]{experiment_class.__name__}[/cyan]")
+    _console.log(f"Output    : [cyan]{output_dir}[/cyan]")
 
     has_metrics = await _probe_metrics(endpoint)
     if has_metrics:
-        _console.print("Metrics   : [green]available[/green]")
+        _console.log("Metrics   : [green]available[/green]")
     else:
-        _console.print("Metrics   : [yellow]unavailable — GPU stats will not be collected[/yellow]")
+        _console.log("Metrics   : [yellow]unavailable — GPU stats will not be collected[/yellow]")
 
     metrics_poller = MetricsPoller(endpoint) if has_metrics else None
     max_concurrency = getattr(config, "concurrency", 1)
@@ -112,7 +112,7 @@ async def run_from_config(config_path: Path) -> None:
         s3 = S3Manager(bucket, region)
         s3_prefix = output_dir.as_posix()
         s3.upload_directory(output_dir, s3_prefix)
-        _console.print(f"Results   : [green]uploaded to s3://{bucket}/{s3_prefix}[/green]")
+        _console.log(f"Results   : [green]uploaded to s3://{bucket}/{s3_prefix}[/green]")
 
 
 def _print_summary(summary: ExperimentSummary) -> None:
@@ -151,7 +151,7 @@ def _print_summary(summary: ExperimentSummary) -> None:
     _console.print(table)
     error_colour = "red" if summary.error_count else "green"
     timeout_suffix = f" ({summary.timeout_error_count} timeouts)" if summary.error_count else ""
-    _console.print(
+    _console.log(
         f"Requests: {summary.total_requests} total, "
         f"[{error_colour}]{summary.error_count} errors{timeout_suffix}[/{error_colour}]"
     )

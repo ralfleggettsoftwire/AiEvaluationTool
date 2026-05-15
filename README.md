@@ -420,6 +420,81 @@ Note that a UUID is prepended to each prompt before it is sent to the model. Thi
 
 `ttft`, `total_latency`, and `tokens_per_sec` statistics are computed **only over successful requests** (those where `error` is null in `results.jsonl`). Failed requests contribute to `error_count` and, if they timed out, to `timeout_error_count`, but are excluded from all latency and throughput percentiles.
 
+## Troubleshooting
+
+### First step: read the log
+
+All experiment output (stdout and stderr) is written to `~/harness.log` on the harness instance under the `ssm-user` account. This is always the first place to look when something goes wrong.
+
+To read it, open a session on the harness instance via the AWS Systems Manager Session Manager console, or run:
+
+```bash
+aws ssm start-session --target <HARNESS_INSTANCE_ID> --region <AWS_REGION>
+```
+
+Then:
+
+```bash
+cat ~/harness.log      # full log
+tail -50 ~/harness.log # last 50 lines
+```
+
+---
+
+### "Could not detect model name from … /v1/models"
+
+The harness cannot reach the vLLM server. Check:
+
+- `MODEL_ENDPOINT_URL` on the harness instance is set to the correct private IP and port (e.g. `http://10.0.1.5:8000`).
+- The GPU instance is running and vLLM has finished loading the model — vLLM logs `Application startup complete` when ready.
+- The GPU instance's security group allows inbound TCP 8000 from the harness instance's security group.
+- If `MODEL_API_KEY` is set, verify it matches the `--api-key` value vLLM was started with.
+
+---
+
+### "Could not detect EC2 instance type from the instance metadata service"
+
+The hardware detection reads the [EC2 Instance Metadata Service](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html), which is only available from within an EC2 instance. This error means the harness is not running on EC2.
+
+**If you are running `cli.py run`** (remote mode): the experiment runs on the harness EC2 instance via SSM — this error should not appear unless the IMDS is explicitly disabled on the instance (IMDSv2 `HttpEndpoint=disabled`). Check the instance metadata settings in the EC2 console.
+
+**If you are running `cli.py run-local` on your MacBook**: local runs require an EC2 instance for hardware detection. To run locally without EC2, run `cli.py run-local` from a session on the harness instance itself (via SSM Session Manager), not from your laptop.
+
+---
+
+### "MODEL_ENDPOINT_URL is not set"
+
+The environment variable is missing on the harness instance. The SSM command that runs experiments uses a login shell for `ssm-user`, which reads `~/.bash_profile`. Ensure the variable was exported there (not in `~/.bashrc`, which Ubuntu's default config skips for non-interactive shells):
+
+```bash
+grep MODEL_ENDPOINT_URL ~/.bash_profile
+```
+
+If it is missing, add it and re-source the file as shown in [Harness instance setup](#harness-instance-setup).
+
+---
+
+### Experiment completes but results have a high error or timeout rate
+
+- **Timeouts**: `request_timeout_s` may be too low for the model and hardware combination. The timeout governs the maximum wait for the next streamed byte; larger models on slower hardware need more headroom. Try 60–120 s.
+- **OOM / 503 responses**: the GPU is overloaded. Reduce `concurrency` or `n_requests`, or check GPU VRAM usage via the `metrics.jsonl` file if the `/metrics` endpoint was available during the run.
+- **All requests fail immediately**: `MODEL_ENDPOINT_URL` is reachable but vLLM is returning errors — check the vLLM process logs on the GPU instance.
+
+---
+
+### Results are not uploaded to S3
+
+- Confirm `S3_BUCKET` is set in `~/.bash_profile` on the harness instance (`grep S3_BUCKET ~/.bash_profile`).
+- Confirm the harness instance's IAM instance profile has `s3:PutObject` on the bucket. The IAM role attached to the instance profile must include this permission explicitly — it is not granted by `AmazonSSMManagedInstanceCore`.
+
+---
+
+### `cli.py run` triggers the experiment but `experiment-status` never returns `idle`
+
+The background process may have crashed early. Check `~/harness.log` on the harness instance for an error printed before any requests were sent (misconfigured endpoint, missing environment variable, failed metadata detection). If the log shows requests in progress, the experiment is still running — poll `experiment-status` again after a few minutes.
+
+---
+
 ## Testing
 
 Run unit tests
