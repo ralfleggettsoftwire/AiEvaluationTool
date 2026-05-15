@@ -98,6 +98,9 @@ uv run python cli.py start                                          # start harn
 uv run python cli.py run --config config/exp1_baseline.yaml        # upload config and trigger remotely
 uv run python cli.py run-local --config config/exp1_baseline.yaml  # run locally (needs MODEL_ENDPOINT_URL)
 uv run python cli.py status                                         # check instance state
+uv run python cli.py experiment-status                             # running/idle + last 50 log lines
+uv run python cli.py logs [--lines N]                              # tail harness.log from the instance
+uv run python cli.py cancel                                        # kill a running experiment
 uv run python cli.py download [--model llama3 --experiment 1]      # sync results from S3
 uv run python cli.py stop                                           # stop harness instance
 ```

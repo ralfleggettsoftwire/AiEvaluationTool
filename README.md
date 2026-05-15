@@ -47,7 +47,7 @@ The IAM principal needs the following permissions:
 | CLI command | IAM actions required |
 |-------------|----------------------|
 | `start`, `stop`, `status` | `ec2:StartInstances`, `ec2:StopInstances`, `ec2:DescribeInstances` |
-| `run`, `experiment-status` | `ssm:SendCommand`, `ssm:GetCommandInvocation` |
+| `run`, `experiment-status`, `cancel`, `logs` | `ssm:SendCommand`, `ssm:GetCommandInvocation` |
 | `download` | `s3:GetObject`, `s3:ListBucket` |
 
 All three service groups are needed for a full end-to-end workflow. There is no Pricing API call anywhere in the codebase.
@@ -149,7 +149,9 @@ The experiment runner on the harness instance reads these at runtime (set during
 | `cli.py status` | Print instance state and public IP |
 | `cli.py run --config <path>` | Upload your local config to the instance and start the experiment in the background via SSM |
 | `cli.py run-local --config <path>` | Run an experiment directly on your local machine using `MODEL_ENDPOINT_URL` — no EC2 needed |
-| `cli.py experiment-status` | Print `running` or `idle` depending on whether an experiment is active on the harness instance |
+| `cli.py experiment-status` | Print `running` or `idle`; when running, also shows the last 50 lines of `harness.log` |
+| `cli.py cancel` | Kill a running experiment on the harness instance |
+| `cli.py logs [--lines N]` | Print the last N lines of `harness.log` from the harness instance (default: 50) |
 | `cli.py download [--model <name>] [--experiment <name>]` | Sync results from S3 to `./results/`; `--experiment` requires `--model` |
 
 All commands are invoked as `uv run python cli.py <command>`.
@@ -185,14 +187,22 @@ This uploads **your local config file** to the harness instance (`/home/ec2-user
 
 ### 4. Monitor until complete
 
-Prints either:
-- `running`   (experiment is still in progress)
-- `idle`      (experiment has finished)
-
-Poll this command until it prints `idle`.
+Poll until the experiment finishes. When running, the last 50 lines of `harness.log` are printed inline so you can see per-request progress without opening a separate session.
 
 ```bash
 uv run python cli.py experiment-status
+```
+
+To stream more log lines at any time:
+
+```bash
+uv run python cli.py logs --lines 100
+```
+
+To stop a running experiment early:
+
+```bash
+uv run python cli.py cancel
 ```
 
 ### 5. Download results
