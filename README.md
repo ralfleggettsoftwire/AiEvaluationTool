@@ -82,13 +82,15 @@ git clone https://github.com/ralfleggettsoftwire/AiEvaluationTool ~/harness-repo
 cd ~/harness-repo
 uv sync
 
-# Persist required environment variables — the experiment runner reads these at runtime
-cat >> ~/.bashrc <<'EOF'
+# Persist required environment variables — the experiment runner reads these at runtime.
+# Use ~/.bash_profile, not ~/.bashrc: Ubuntu's .bashrc has a non-interactive guard that
+# exits early, so exports there are invisible to the login shell used by cli.py run.
+cat >> ~/.bash_profile <<'EOF'
 export MODEL_ENDPOINT_URL=http://<gpu-instance-private-ip>:8000
 export S3_BUCKET=llm-eval-results
 export AWS_REGION=eu-central-1
 EOF
-source ~/.bashrc
+source ~/.bash_profile
 ```
 
 **Networking assumptions this code makes:**
@@ -115,7 +117,7 @@ Copy `.env.example` to `.env` and fill in your values. The CLI reads this file o
 
 `run` and `experiment-status` use `HARNESS_INSTANCE_ID` and your AWS credentials to communicate with the harness instance via SSM — no separate SSH host, user, or key variables are needed.
 
-### Harness instance (`~/.bashrc`)
+### Harness instance (`~/.bash_profile`)
 
 The experiment runner on the harness instance reads these at runtime (set during [instance setup](#harness-instance-setup)):
 

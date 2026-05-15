@@ -92,6 +92,7 @@ def test_run_experiment_sends_nohup_command(mock_boto_client: MagicMock) -> None
     assert "uv run python cli.py run-local" in cmd
     assert "~/harness-repo" in cmd
     assert "~/harness.log" in cmd
+    assert ".bashrc" not in cmd
     ssm_client.get_command_invocation.assert_not_called()
 
 

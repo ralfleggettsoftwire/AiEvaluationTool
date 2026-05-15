@@ -75,12 +75,13 @@ class SSMManager:
 
     def run_experiment(self, config_path: str) -> None:
         quoted = shlex.quote(config_path)
-        # runuser -l runs a login shell as ssm-user, so ~ and $HOME resolve correctly.
-        # Single quotes from shlex.quote are passed literally through the outer double
-        # quotes and then interpreted as shell quoting by ssm-user's shell.
+        # runuser -l starts a login shell as ssm-user, which sources ~/.bash_profile
+        # automatically — no need to source it explicitly. Single quotes from
+        # shlex.quote are passed literally through the outer double quotes and then
+        # interpreted as shell quoting by ssm-user's shell.
         command = (
             f"runuser -l ssm-user -c "
-            f'"cd ~/harness-repo && . ~/.bashrc && '
+            f'"cd ~/harness-repo && '
             f'nohup uv run python cli.py run-local --config {quoted} >> ~/harness.log 2>&1 &"'
         )
         self._send_no_wait(command)
