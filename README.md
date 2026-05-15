@@ -166,7 +166,7 @@ Pick one of the pre-built configs in `config/`, or write your own (see [Configur
 uv run python cli.py run --config config/exp1_baseline_small.yaml
 ```
 
-This uploads **your local config file** to the harness instance (`/home/ec2-user/harness_config.yaml`) via SSM, then starts the experiment in the background using that uploaded copy. Any config files already on the instance are not used. The experiment process logs to `~/harness.log` on the harness instance.
+This uploads **your local config file** to the harness instance (`/home/ec2-user/harness_config.yaml`) via SSM, then starts the experiment in the background using that uploaded copy. Any config files already on the instance are not used. The experiment process logs to `/home/ssm-user/harness.log` on the harness instance.
 
 ### 4. Monitor until complete
 
@@ -202,7 +202,7 @@ uv run python cli.py download --model llama3-8b --experiment Exp1Baseline
 Results are written to `./results/` (gitignored) with the same path structure as on S3:
 
 ```
-results/<model_name>/<hardware>/<ExperimentClassName>/<ISO-datetime>/
+results/<model_name>/<hardware>/<ExperimentClassName>/2024-01-15T10-23-01Z/
   config.yaml     # exact config that produced this run
   results.jsonl   # one JSON line per request
   summary.json    # aggregated stats

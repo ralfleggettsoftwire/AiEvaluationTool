@@ -70,7 +70,7 @@ tests/                  # mirrors source tree; unit tests only, all I/O mocked
 ## Results Directory Structure
 
 ```
-results/<model_name>/<hardware>/<ExperimentClassName>/<ISO-datetime>/
+results/<model_name>/<hardware>/<ExperimentClassName>/2024-01-15T10-23-01Z/
   config.yaml     # verbatim config written before any requests (partial runs are recoverable)
   results.jsonl   # one JSON line per request: timestamp, prompt_tokens, completion_tokens,
                   #   ttft_s, total_latency_s, tokens_per_sec, error, timed_out
