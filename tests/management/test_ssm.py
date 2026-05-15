@@ -312,7 +312,7 @@ def test_tail_harness_log_returns_stdout(mock_boto_client: MagicMock) -> None:
     cmd: str = ssm_client.send_command.call_args[1]["Parameters"]["commands"][0]
     assert "tail" in cmd
     assert "50" in cmd
-    assert "harness.log" in cmd
+    assert "~ssm-user/harness.log" in cmd
 
 
 @patch("management.ssm.boto3.client")

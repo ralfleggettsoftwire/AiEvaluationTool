@@ -100,7 +100,10 @@ class SSMManager:
         return rc == 0
 
     def tail_harness_log(self, lines: int = 50) -> str:
-        # '2>/dev/null; true' makes the command exit 0 when the file doesn't exist
-        # yet — a normal state before the first experiment has written any output.
-        _, output = self._send_and_capture(f"tail -n {lines} ~/harness.log 2>/dev/null; true")
+        # SSM commands run as root, so ~ resolves to /root. The log is written by
+        # run_experiment under runuser -l ssm-user, so it lives in ~ssm-user.
+        # '2>/dev/null; true' makes the command exit 0 when the file doesn't exist yet.
+        _, output = self._send_and_capture(
+            f"tail -n {lines} ~ssm-user/harness.log 2>/dev/null; true"
+        )
         return output

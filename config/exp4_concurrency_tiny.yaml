@@ -6,7 +6,5 @@ concurrency_levels:
   - 5
   - 10
   - 25
-  - 50
-  - 100
 requests_per_user: 10
 request_timeout_s: 30
