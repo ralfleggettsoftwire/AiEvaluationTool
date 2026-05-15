@@ -26,16 +26,33 @@ Results are uploaded to S3 immediately after each run so they survive instance s
 ## Prerequisites
 
 - Python 3.12+ and [`uv`](https://github.com/astral-sh/uv) — on your **local machine**
-- AWS credentials with EC2, S3, SSM, and Pricing API access — on your **local machine**
+- AWS credentials configured on your **local machine** (see [Local AWS credentials](#local-aws-credentials) below)
 - A running vLLM server (the harness does **not** start GPU instances — do that manually)
 - A `t3.large` harness EC2 instance **already created** in the same VPC as the GPU instances (its ID goes in `HARNESS_INSTANCE_ID`); see [Harness instance setup](#harness-instance-setup) below
 - An S3 bucket **already created** for result storage (its name goes in `S3_BUCKET`)
+
+## Local AWS credentials
+
+The CLI uses **boto3**, which follows the standard AWS credential chain — no AWS CLI installation is required, but credentials must be available in one of the usual places:
+
+1. **Environment variables** — `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_SESSION_TOKEN`
+2. **Shared credentials file** — `~/.aws/credentials` (populated by `aws configure` if you have the AWS CLI)
+3. **AWS config file** — `~/.aws/config` with `[profile …]` entries; select a profile with `AWS_PROFILE=<name>`
+
+The IAM principal needs the following permissions:
+
+| CLI command | IAM actions required |
+|-------------|----------------------|
+| `start`, `stop`, `status` | `ec2:StartInstances`, `ec2:StopInstances`, `ec2:DescribeInstances` |
+| `run`, `experiment-status` | `ssm:SendCommand`, `ssm:GetCommandInvocation` |
+| `download` | `s3:GetObject`, `s3:ListBucket` |
+
+All three service groups are needed for a full end-to-end workflow. There is no Pricing API call anywhere in the codebase.
 
 ## AWS infrastructure prerequisites
 
 - The harness EC2 instance must have an **IAM instance profile** with the `AmazonSSMManagedInstanceCore` AWS managed policy attached.
 - The **SSM Agent** must be running on the instance (pre-installed and enabled by default on Amazon Linux 2023 and Amazon Linux 2).
-- Your local AWS credentials need `ssm:SendCommand` and `ssm:GetCommandInvocation` permissions on the instance (or `*` for simplicity).
 - No inbound port 22 required; no SSH key file needed.
 
 To create the harness instance and S3 bucket via the AWS CLI (one-time):
@@ -43,9 +60,9 @@ To create the harness instance and S3 bucket via the AWS CLI (one-time):
 ```bash
 # S3 bucket
 aws s3api create-bucket \
-  --bucket my-llm-eval-results \
-  --region eu-west-1 \
-  --create-bucket-configuration LocationConstraint=eu-west-1
+  --bucket llm-eval-results \
+  --region eu-central-1 \
+  --create-bucket-configuration LocationConstraint=eu-central-1
 
 # Harness EC2 instance — use an AL2023 AMI; adjust SG and profile name
 # --key-name is optional: port 22 is not required when using SSM Session Manager
@@ -87,8 +104,8 @@ uv sync
 # Persist required environment variables — the experiment runner reads these at runtime
 cat >> ~/.bashrc <<'EOF'
 export MODEL_ENDPOINT_URL=http://<gpu-instance-private-ip>:8000
-export S3_BUCKET=my-llm-eval-results
-export AWS_REGION=eu-west-1
+export S3_BUCKET=llm-eval-results
+export AWS_REGION=eu-central-1
 EOF
 source ~/.bashrc
 ```
@@ -155,7 +172,7 @@ uv run python cli.py run --config config/exp1_baseline_small.yaml
 # Experiment started.
 ```
 
-This uploads the config to the harness instance via SSM and starts the experiment in the background. The experiment process on the harness instance logs to `~/harness.log`.
+This uploads **your local config file** to the harness instance (`/home/ec2-user/harness_config.yaml`) via SSM, then starts the experiment in the background using that uploaded copy. Any config files already on the instance are not used. The experiment process logs to `~/harness.log` on the harness instance.
 
 ### 4. Monitor until complete
 
