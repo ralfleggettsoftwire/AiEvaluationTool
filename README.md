@@ -94,6 +94,16 @@ EOF
 source ~/.bash_profile
 ```
 
+To find the vLLM API key, connect to the GPU instance via SSM and inspect the running process:
+
+```bash
+# On the GPU instance (via SSM start-session or send_command):
+ps aux | grep vllm
+# Look for --api-key <value> in the output.
+# If the value is truncated, use:
+cat /proc/$(pgrep -f 'vllm serve')/cmdline | tr '\0' '\n' | grep -A1 '\-\-api-key'
+```
+
 **Networking assumptions this code makes:**
 - The harness instance and GPU instance are in the **same VPC** so the harness can reach the model via private IP.
 - The GPU instance's security group allows **inbound TCP 8000** from the harness instance's security group.
