@@ -155,6 +155,44 @@ async def test_model_name_cached_after_first_call() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_api_key_sent_as_bearer_token() -> None:
+    respx.get(f"{BASE_URL}/v1/models").mock(
+        return_value=httpx.Response(200, json={"data": [{"id": "llama3"}]})
+    )
+    body = _sse_lines(_make_chunk("ok", usage={"prompt_tokens": 1, "completion_tokens": 1}))
+    post_route = respx.post(f"{BASE_URL}/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
+    )
+
+    async with LLMClient(BASE_URL, api_key="secret") as client:
+        await client.complete(REQ)
+
+    assert post_route.calls[0].request.headers["authorization"] == "Bearer secret"  # type: ignore[reportUnknownMemberType]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_no_auth_header_when_api_key_not_set() -> None:
+    respx.get(f"{BASE_URL}/v1/models").mock(
+        return_value=httpx.Response(200, json={"data": [{"id": "llama3"}]})
+    )
+    body = _sse_lines(_make_chunk("ok", usage={"prompt_tokens": 1, "completion_tokens": 1}))
+    post_route = respx.post(f"{BASE_URL}/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
+    )
+
+    async with LLMClient(BASE_URL) as client:
+        await client.complete(REQ)
+
+    assert "authorization" not in post_route.calls[0].request.headers  # type: ignore[reportUnknownMemberType]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_model_fetch_failure_uses_default() -> None:
     respx.get(f"{BASE_URL}/v1/models").mock(side_effect=httpx.ConnectError("no server"))
     body = _sse_lines(_make_chunk("ok", usage={"prompt_tokens": 1, "completion_tokens": 1}))

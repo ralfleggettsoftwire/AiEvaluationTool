@@ -89,7 +89,8 @@ async def run_from_config(config_path: Path) -> None:
     metrics_poller = MetricsPoller(endpoint) if has_metrics else None
     max_concurrency = getattr(config, "concurrency", 1)
 
-    async with LLMClient(endpoint, timeout=config.request_timeout_s) as client:
+    api_key = os.environ.get("MODEL_API_KEY")
+    async with LLMClient(endpoint, timeout=config.request_timeout_s, api_key=api_key) as client:
         runner = Runner(client, max_concurrency, metrics_poller)
         experiment = experiment_class(config, output_dir)
         summary = await experiment.run(runner)

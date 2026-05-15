@@ -89,6 +89,7 @@ cat >> ~/.bash_profile <<'EOF'
 export MODEL_ENDPOINT_URL=http://<gpu-instance-private-ip>:8000
 export S3_BUCKET=llm-eval-results
 export AWS_REGION=eu-central-1
+export MODEL_API_KEY=<vllm-api-key>   # omit this line if vLLM has no --api-key
 EOF
 source ~/.bash_profile
 ```
@@ -114,6 +115,7 @@ Copy `.env.example` to `.env` and fill in your values. The CLI reads this file o
 | `HARNESS_INSTANCE_ID` | all remote commands | EC2 instance ID of the harness box (e.g. `i-0abc123`) |
 | `S3_BUCKET` | `download` | S3 bucket name for result storage |
 | `AWS_REGION` | all | AWS region (default: `eu-west-1`) |
+| `MODEL_API_KEY` | `run-local` | API key for the model server; omit if vLLM was started without `--api-key` |
 
 `run` and `experiment-status` use `HARNESS_INSTANCE_ID` and your AWS credentials to communicate with the harness instance via SSM — no separate SSH host, user, or key variables are needed.
 
@@ -126,6 +128,7 @@ The experiment runner on the harness instance reads these at runtime (set during
 | `MODEL_ENDPOINT_URL` | Private IP URL of the vLLM server, e.g. `http://10.0.1.5:8000` |
 | `S3_BUCKET` | Same bucket name — results are uploaded here after each run |
 | `AWS_REGION` | AWS region (default: `eu-west-1`) |
+| `MODEL_API_KEY` | API key for the model server; omit if vLLM was started without `--api-key` |
 
 ## CLI reference
 

@@ -11,11 +11,12 @@ _DONE_SENTINEL = "[DONE]"
 
 
 class LLMClient:
-    def __init__(self, base_url: str, timeout: float = 30.0) -> None:
+    def __init__(self, base_url: str, timeout: float = 30.0, api_key: str | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._model: str | None = None
-        self._http = httpx.AsyncClient(timeout=httpx.Timeout(timeout))
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self._http = httpx.AsyncClient(timeout=httpx.Timeout(timeout), headers=headers)
 
     async def _fetch_model(self) -> str:
         try:
