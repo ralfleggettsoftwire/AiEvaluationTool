@@ -1,7 +1,9 @@
 import httpx
 
+_IMDS_TOKEN_URL = "http://169.254.169.254/latest/api/token"
 _IMDS_INSTANCE_TYPE_URL = "http://169.254.169.254/latest/meta-data/instance-type"
 _IMDS_TIMEOUT = 1.0
+_IMDS_TOKEN_TTL = "21600"
 
 
 async def _fetch_model_name(endpoint_url: str, api_key: str | None) -> str:
@@ -22,7 +24,17 @@ async def _fetch_model_name(endpoint_url: str, api_key: str | None) -> str:
 async def _fetch_hardware() -> str:
     try:
         async with httpx.AsyncClient(timeout=_IMDS_TIMEOUT) as client:
-            resp = await client.get(_IMDS_INSTANCE_TYPE_URL)
+            # IMDSv2 requires a session token obtained via PUT before any metadata GET.
+            token_resp = await client.put(
+                _IMDS_TOKEN_URL,
+                headers={"X-aws-ec2-metadata-token-ttl-seconds": _IMDS_TOKEN_TTL},
+            )
+            token_resp.raise_for_status()
+            token = token_resp.text.strip()
+            resp = await client.get(
+                _IMDS_INSTANCE_TYPE_URL,
+                headers={"X-aws-ec2-metadata-token": token},
+            )
             resp.raise_for_status()
             return resp.text.strip()
     except Exception as exc:
