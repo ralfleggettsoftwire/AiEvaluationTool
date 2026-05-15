@@ -233,6 +233,8 @@ uv run python cli.py stop
 
 Each experiment series has its own config schema. `model_name` and `hardware` are **not** set in config files — they are detected automatically at runtime from the vLLM `/v1/models` endpoint and the EC2 instance metadata service respectively, and used to name the results directory.
 
+`prompt_file` (and `prompt_files`) paths are resolved **on the harness EC2 instance**, relative to `~/harness-repo`. The built-in prompts in `prompts/` are part of the repo and are available there automatically. If you want to use a custom prompt, copy it to the harness instance first:
+
 `max_tokens` is optional in most configs. When omitted the model generates until it naturally stops, which gives the most representative throughput signal for a load test. Set it only in two cases: `max_tokens: 1` in Experiment 2 where only TTFT matters; and `max_tokens: 64` in completion-model configs (those ending `_tiny`) where a short cap reflects how production completion endpoints are actually deployed. Omit it everywhere else — capping output prevents the KV cache from filling and gives an unrepresentative throughput reading.
 
 `request_timeout_s` is required in all configs. It sets the per-request read timeout (seconds) passed to the HTTP client. The timeout governs the maximum time the client will wait for the next streamed byte — once streaming begins the timer resets with each chunk, so only the TTFT leg is realistically bounded by this value. 30 seconds is a reasonable threshold for AI-assisted coding tools; requests that exceed it are counted as `timeout_error_count` in the summary and excluded from latency statistics.
