@@ -88,6 +88,7 @@ def test_run_experiment_sends_nohup_command(mock_boto_client: MagicMock) -> None
     ssm_client.send_command.assert_called_once()
     cmd: str = ssm_client.send_command.call_args[1]["Parameters"]["commands"][0]
     assert "runuser -l ssm-user" in cmd
+    assert ". ~/.bash_profile" in cmd
     assert "nohup" in cmd
     assert "uv run python cli.py run-local" in cmd
     assert "~/harness-repo" in cmd
