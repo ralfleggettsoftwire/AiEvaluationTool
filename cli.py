@@ -146,7 +146,8 @@ def experiment_status() -> None:
     click.echo("running" if running else "idle")
     if running:
         try:
-            click.echo(ssm.tail_harness_log())
+            log_output = ssm.tail_harness_log()
+            click.echo(log_output if log_output.strip() else "(no log output yet)")
         except Exception as exc:
             click.echo(f"Warning: could not read harness.log: {exc}", err=True)
 

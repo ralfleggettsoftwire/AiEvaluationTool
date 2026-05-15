@@ -100,7 +100,7 @@ class SSMManager:
         return rc == 0
 
     def tail_harness_log(self, lines: int = 50) -> str:
-        rc, output = self._send_and_capture(f"tail -n {lines} ~/harness.log")
-        if rc != 0:
-            raise RuntimeError(f"Failed to read harness.log (exit code {rc})")
+        # '2>/dev/null; true' makes the command exit 0 when the file doesn't exist
+        # yet — a normal state before the first experiment has written any output.
+        _, output = self._send_and_capture(f"tail -n {lines} ~/harness.log 2>/dev/null; true")
         return output

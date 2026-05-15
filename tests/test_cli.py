@@ -241,6 +241,17 @@ class TestExperimentStatus:
         assert result.exit_code == 0
         assert "running" in result.output
 
+    def test_running_empty_log_shows_not_yet_message(
+        self, runner: CliRunner, ec2_env: None
+    ) -> None:
+        mock_ssm = MagicMock()
+        mock_ssm.return_value.get_experiment_status.return_value = True
+        mock_ssm.return_value.tail_harness_log.return_value = ""
+        with patch("cli.SSMManager", mock_ssm):
+            result = runner.invoke(cli, ["experiment-status"])
+        assert result.exit_code == 0
+        assert "no log output yet" in result.output
+
     def test_error_exits_nonzero(self, runner: CliRunner, ec2_env: None) -> None:
         mock_ssm = MagicMock()
         mock_ssm.return_value.get_experiment_status.side_effect = RuntimeError("SSM error")

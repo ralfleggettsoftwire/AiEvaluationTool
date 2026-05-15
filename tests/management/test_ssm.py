@@ -316,19 +316,22 @@ def test_tail_harness_log_returns_stdout(mock_boto_client: MagicMock) -> None:
 
 
 @patch("management.ssm.boto3.client")
-def test_tail_harness_log_raises_on_nonzero_exit(mock_boto_client: MagicMock) -> None:
+def test_tail_harness_log_returns_empty_when_file_not_found(mock_boto_client: MagicMock) -> None:
     ssm_client = _make_ssm_client()
     ssm_client.get_command_invocation.return_value = {
-        "Status": "Failed",
-        "ResponseCode": 1,
+        "Status": "Success",
+        "ResponseCode": 0,
         "StandardOutputContent": "",
-        "StandardErrorContent": "No such file",
+        "StandardErrorContent": "",
     }
     mock_boto_client.return_value = ssm_client
 
     mgr = SSMManager("i-1234567890abcdef0")
-    with pytest.raises(RuntimeError):
-        mgr.tail_harness_log()
+    assert mgr.tail_harness_log() == ""
+
+    cmd: str = ssm_client.send_command.call_args[1]["Parameters"]["commands"][0]
+    assert "2>/dev/null" in cmd
+    assert "; true" in cmd
 
 
 @patch("management.ssm.boto3.client")
