@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from mypy_boto3_ssm.type_defs import GetCommandInvocationResultTypeDef, SendCommandResultTypeDef
 
 _PENDING_STATUSES = {"Pending", "InProgress", "Delayed"}
-_HARNESS_USER_HOME = "/home/ssm-user"
 
 
 class SSMManager:
@@ -76,10 +75,13 @@ class SSMManager:
 
     def run_experiment(self, config_path: str) -> None:
         quoted = shlex.quote(config_path)
+        # runuser -l runs a login shell as ssm-user, so ~ and $HOME resolve correctly.
+        # Single quotes from shlex.quote are passed literally through the outer double
+        # quotes and then interpreted as shell quoting by ssm-user's shell.
         command = (
-            f"cd {_HARNESS_USER_HOME}/harness-repo && . {_HARNESS_USER_HOME}/.bashrc && "
-            f"nohup uv run python cli.py run-local --config {quoted} "
-            f">> {_HARNESS_USER_HOME}/harness.log 2>&1 &"
+            f"runuser -l ssm-user -c "
+            f'"cd ~/harness-repo && . ~/.bashrc && '
+            f'nohup uv run python cli.py run-local --config {quoted} >> ~/harness.log 2>&1 &"'
         )
         self._send_no_wait(command)
 
