@@ -55,10 +55,18 @@ def test_download_directory_recreates_path_structure(tmp_path: Path, manager: S3
     manager.upload_directory(tmp_path / "src", "results/run2")
 
     dest = tmp_path / "dest"
-    manager.download_directory("results/run2", dest)
+    count = manager.download_directory("results/run2", dest)
 
+    assert count == 2
     assert (dest / "file.txt").read_text() == "content"
     assert (dest / "nested" / "deep.txt").read_text() == "deep"
+
+
+def test_download_directory_returns_zero_for_unknown_prefix(
+    tmp_path: Path, manager: S3Manager
+) -> None:
+    count = manager.download_directory("nonexistent/", tmp_path / "dest")
+    assert count == 0
 
 
 def test_list_keys_returns_expected_keys(tmp_path: Path, manager: S3Manager) -> None:

@@ -78,7 +78,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source "$HOME/.local/bin/env"
 
 # Clone the project and install dependencies
-git clone <this-repo> ~/harness-repo
+git clone https://github.com/ralfleggettsoftwire/AiEvaluationTool ~/harness-repo
 cd ~/harness-repo
 uv sync
 
@@ -144,18 +144,18 @@ All commands are invoked as `uv run python cli.py <command>`.
 All `cli.py` commands run on your **local machine**. The experiment itself runs on the **harness EC2 instance** in the background, triggered via SSM.
 
 ### 1. Start the harness instance
+Prints the public IP.
 
 ```bash
 uv run python cli.py start
-# prints the public IP, e.g. 54.12.34.56
 ```
 
 ### 2. Verify the instance is reachable
 
+Prints status and public IP.
+
 ```bash
 uv run python cli.py status
-# Status: running
-# IP: 54.12.34.56
 ```
 
 ### 3. Run an experiment
@@ -164,33 +164,38 @@ Pick one of the pre-built configs in `config/`, or write your own (see [Configur
 
 ```bash
 uv run python cli.py run --config config/exp1_baseline_small.yaml
-# Experiment started.
 ```
 
 This uploads **your local config file** to the harness instance (`/home/ec2-user/harness_config.yaml`) via SSM, then starts the experiment in the background using that uploaded copy. Any config files already on the instance are not used. The experiment process logs to `~/harness.log` on the harness instance.
 
 ### 4. Monitor until complete
 
-```bash
-uv run python cli.py experiment-status
-# running   (experiment is still in progress)
-# idle      (experiment has finished)
-```
+Prints either:
+- `running`   (experiment is still in progress)
+- `idle`      (experiment has finished)
 
 Poll this command until it prints `idle`.
+
+```bash
+uv run python cli.py experiment-status
+```
 
 ### 5. Download results
 
 Results are uploaded to S3 automatically when each experiment finishes. Pull them to your local machine:
 
+All results:
 ```bash
-# All results
 uv run python cli.py download
+````
 
-# Only results for a specific model
+Only results for a specific model:
+```bash
 uv run python cli.py download --model llama3-8b
+````
 
-# Only a specific experiment for a model
+Only a specific experiment for a model:
+```bash
 uv run python cli.py download --model llama3-8b --experiment Exp1Baseline
 ```
 

@@ -89,7 +89,10 @@ def test_run_experiment_sends_nohup_command(mock_boto_client: MagicMock) -> None
     cmd: str = ssm_client.send_command.call_args[1]["Parameters"]["commands"][0]
     assert "nohup" in cmd
     assert "uv run python cli.py run-local" in cmd
-    assert "disown" in cmd
+    assert "/home/ssm-user/harness-repo" in cmd
+    assert "/home/ssm-user/.bashrc" in cmd
+    assert "/home/ssm-user/harness.log" in cmd
+    assert "~" not in cmd
     ssm_client.get_command_invocation.assert_not_called()
 
 
@@ -212,6 +215,30 @@ def test_send_and_wait_cancelling_is_terminal(mock_boto_client: MagicMock) -> No
     # Must have returned on the first invocation — no sleeping
     mock_sleep.assert_not_called()
     assert ssm_client.get_command_invocation.call_count == 1
+
+
+@patch("management.ssm.boto3.client")
+def test_send_and_wait_retries_on_invocation_does_not_exist(mock_boto_client: MagicMock) -> None:
+    ssm_client = _make_ssm_client()
+    not_yet = ClientError(
+        {"Error": {"Code": "InvocationDoesNotExist", "Message": ""}},
+        "GetCommandInvocation",
+    )
+    success = {
+        "Status": "Success",
+        "ResponseCode": 0,
+        "StandardOutputContent": "",
+        "StandardErrorContent": "",
+    }
+    ssm_client.get_command_invocation.side_effect = [not_yet, not_yet, success]
+    mock_boto_client.return_value = ssm_client
+
+    mgr = SSMManager("i-1234567890abcdef0")
+    with patch("management.ssm.time.sleep"):
+        rc = mgr._send_and_wait("echo hello")  # type: ignore[reportPrivateUsage]
+
+    assert rc == 0
+    assert ssm_client.get_command_invocation.call_count == 3
 
 
 @patch("management.ssm.boto3.client")

@@ -125,8 +125,11 @@ def download(model: str | None, experiment: str | None) -> None:
         prefix = "results/"
 
     s3 = S3Manager(bucket, region)
-    s3.download_directory(prefix, Path("./results"))
-    click.echo("Downloaded to ./results/")
+    count = s3.download_directory(prefix, Path("./results"))
+    if count == 0:
+        click.echo(f"Warning: no files found under s3://{bucket}/{prefix}", err=True)
+    else:
+        click.echo(f"Downloaded {count} file(s) to ./results/")
 
 
 @cli.command("experiment-status")

@@ -24,13 +24,14 @@ class S3Manager:
             key = f"{s3_prefix}/{relative}".replace("\\", "/")
             self._client.upload_file(str(file_path), self._bucket, key)
 
-    def download_directory(self, s3_prefix: str, local_path: Path) -> None:
+    def download_directory(self, s3_prefix: str, local_path: Path) -> int:
         keys = self.list_keys(s3_prefix)
         for key in keys:
             relative = key[len(s3_prefix) :].lstrip("/")
             dest = local_path / relative
             dest.parent.mkdir(parents=True, exist_ok=True)
             self._client.download_file(self._bucket, key, str(dest))
+        return len(keys)
 
     def list_keys(self, prefix: str = "") -> list[str]:
         paginator = self._client.get_paginator("list_objects_v2")

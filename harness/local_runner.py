@@ -73,7 +73,7 @@ async def run_from_config(config_path: Path) -> None:
         / config.model_name
         / config.hardware
         / experiment_class.__name__
-        / datetime.now(tz=UTC).isoformat()
+        / datetime.now(tz=UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
     )
 
     _console.print(f"Endpoint  : [cyan]{endpoint}[/cyan]")

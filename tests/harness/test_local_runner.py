@@ -72,6 +72,7 @@ async def test_run_from_config_uploads_to_s3_when_bucket_set(
     call_args = mock_s3_cls.return_value.upload_directory.call_args
     s3_prefix: str = call_args[0][1]
     assert s3_prefix.startswith("results/llama3/g4dn.xlarge/")
+    assert ":" not in s3_prefix, "S3 prefix must not contain ':' (breaks mkdir on macOS)"
 
 
 async def test_run_from_config_skips_s3_when_no_bucket(

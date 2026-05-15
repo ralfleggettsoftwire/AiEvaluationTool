@@ -6,6 +6,7 @@ import time
 from typing import TYPE_CHECKING
 
 import boto3
+from botocore.exceptions import ClientError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     from mypy_boto3_ssm.type_defs import GetCommandInvocationResultTypeDef, SendCommandResultTypeDef
 
 _PENDING_STATUSES = {"Pending", "InProgress", "Delayed"}
+_HARNESS_USER_HOME = "/home/ssm-user"
 
 
 class SSMManager:
@@ -37,10 +39,16 @@ class SSMManager:
                 raise TimeoutError(
                     f"SSM command {command_id!r} did not complete within {self._timeout}s"
                 )
-            invocation: GetCommandInvocationResultTypeDef = self._client.get_command_invocation(
-                CommandId=command_id,
-                InstanceId=self._instance_id,
-            )
+            try:
+                invocation: GetCommandInvocationResultTypeDef = self._client.get_command_invocation(
+                    CommandId=command_id,
+                    InstanceId=self._instance_id,
+                )
+            except ClientError as e:
+                if e.response.get("Error", {}).get("Code") == "InvocationDoesNotExist":
+                    time.sleep(self._poll_interval)
+                    continue
+                raise
             status: str = invocation["Status"]
             if status not in _PENDING_STATUSES:
                 return int(invocation["ResponseCode"])
@@ -69,8 +77,9 @@ class SSMManager:
     def run_experiment(self, config_path: str) -> None:
         quoted = shlex.quote(config_path)
         command = (
-            f"cd ~/harness-repo && source ~/.bashrc && "
-            f"nohup uv run python cli.py run-local --config {quoted} >> ~/harness.log 2>&1 & disown"
+            f"cd {_HARNESS_USER_HOME}/harness-repo && . {_HARNESS_USER_HOME}/.bashrc && "
+            f"nohup uv run python cli.py run-local --config {quoted} "
+            f">> {_HARNESS_USER_HOME}/harness.log 2>&1 &"
         )
         self._send_no_wait(command)
 

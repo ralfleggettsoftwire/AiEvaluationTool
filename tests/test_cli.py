@@ -164,15 +164,25 @@ class TestRun:
 class TestDownload:
     def test_no_filters(self, runner: CliRunner, s3_env: None) -> None:
         mock_s3 = MagicMock()
+        mock_s3.return_value.download_directory.return_value = 3
         with patch("cli.S3Manager", mock_s3):
             result = runner.invoke(cli, ["download"])
         assert result.exit_code == 0
-        assert "Downloaded to ./results/" in result.output
+        assert "3 file(s)" in result.output
         args = mock_s3.return_value.download_directory.call_args[0]
         assert args[0] == "results/"
 
+    def test_no_files_found_warns(self, runner: CliRunner, s3_env: None) -> None:
+        mock_s3 = MagicMock()
+        mock_s3.return_value.download_directory.return_value = 0
+        with patch("cli.S3Manager", mock_s3):
+            result = runner.invoke(cli, ["download"])
+        assert result.exit_code == 0
+        assert "no files found" in result.output
+
     def test_with_model_only(self, runner: CliRunner, s3_env: None) -> None:
         mock_s3 = MagicMock()
+        mock_s3.return_value.download_directory.return_value = 1
         with patch("cli.S3Manager", mock_s3):
             result = runner.invoke(cli, ["download", "--model", "llama3"])
         assert result.exit_code == 0
@@ -181,6 +191,7 @@ class TestDownload:
 
     def test_with_model_and_experiment(self, runner: CliRunner, s3_env: None) -> None:
         mock_s3 = MagicMock()
+        mock_s3.return_value.download_directory.return_value = 1
         with patch("cli.S3Manager", mock_s3):
             result = runner.invoke(cli, ["download", "--model", "llama3", "--experiment", "1"])
         assert result.exit_code == 0
